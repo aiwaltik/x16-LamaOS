@@ -1,0 +1,981 @@
+[bits 16]
+[org 0x0000]
+
+KERNEL_SEG     equ 0x1000
+PROG_SEG       equ 0x2000
+BUF_SEG        equ 0x3000
+USER_SEG       equ 0x4000
+USER_SEG       equ 0x4000
+
+SYS_INT        equ 0x60
+
+; Syscalls (AH)
+SYS_PUTS       equ 0x01   ; DS:DX -> 0-terminated string
+SYS_GETCH      equ 0x02   ; returns AL
+SYS_CLS        equ 0x03
+SYS_LS         equ 0x10   ; list root dir
+SYS_EXEC       equ 0x11   ; DS:DX -> 8.3 name (e.g. 'HELLO   BIN')
+SYS_EXIT       equ 0x12   ; return to shell
+SYS_READ_FILE  equ 0x14   ; DS:DX -> 8.3 name, CX -> segment
+SYS_WRITE_FILE equ 0x15   ; DS:DX -> 8.3 name, ES:BX -> buffer (1 sector)
+
+start:
+    cli
+    mov ax, KERNEL_SEG
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+    mov sp, 0xFFFE
+    sti
+
+    ; Save boot drive from DL
+    mov [boot_drive], dl
+
+    ; Load BPB values from boot sector (LBA 0)
+    mov ax, BUF_SEG
+    mov es, ax
+    xor bx, bx
+    xor ax, ax               ; LBA 0
+    mov cx, 1
+    call read_sectors_lba
+
+    ; Parse BPB from buffer at ES:0
+    mov ax, [es:11]
+    mov [bpb_bytes_per_sector], ax
+    mov al, [es:13]
+    mov [bpb_sectors_per_cluster], al
+    mov ax, [es:14]
+    mov [bpb_reserved_sectors], ax
+    mov al, [es:16]
+    mov [bpb_num_fats], al
+    mov ax, [es:17]
+    mov [bpb_root_entries], ax
+    mov ax, [es:22]
+    mov [bpb_sectors_per_fat], ax
+    mov ax, [es:24]
+    mov [bpb_sectors_per_track], ax
+    mov ax, [es:26]
+    mov [bpb_num_heads], ax
+
+    call compute_fs_layout
+
+    call install_sysint
+
+    mov dx, msg_kernel
+    call puts
+
+    ; Exec SHELL.BIN to PROG_SEG
+    mov dx, shell_name
+    mov bx, PROG_SEG
+    call load_83
+    jc .shell_nf
+
+    ; Jump to shell
+    mov ax, PROG_SEG
+    mov ds, ax
+    mov es, ax
+    mov ss, ax
+    mov sp, 0xFFFE
+    jmp 0x2000:0x0000
+
+.shell_nf:
+    mov dx, msg_exec_nf
+    call puts
+
+halt:
+    cli
+    hlt
+    jmp halt
+
+; ----------------------------
+; INT 60h handler
+; ----------------------------
+install_sysint:
+    push ax
+    push ds
+    xor ax, ax
+    mov ds, ax
+    mov word [SYS_INT*4], sysint_handler
+    mov word [SYS_INT*4+2], KERNEL_SEG
+    pop ds
+    pop ax
+    ret
+
+sysint_handler:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+    push ds
+    push es
+    mov bp, sp
+
+    sti     ; Enable interrupts so BIOS keyboard works
+
+    push ax
+    mov ax, KERNEL_SEG
+    mov ds, ax
+    pop ax
+
+    cmp ah, SYS_PUTS
+    je .puts
+    cmp ah, SYS_GETCH
+    je .getch
+    cmp ah, SYS_CLS
+    je .cls
+    cmp ah, SYS_LS
+    je .ls
+    cmp ah, SYS_EXEC
+    je .exec
+    cmp ah, SYS_EXIT
+    je .exit
+    cmp ah, SYS_READ_FILE
+    je .read_file
+    cmp ah, SYS_WRITE_FILE
+    je .write_file
+    jmp .done
+
+.puts:
+    ; Caller DS:DX -> string. Saved caller DS is at [BP+2].
+    mov ax, [bp + 2]
+    mov es, ax
+    mov si, dx
+    call puts_es_si
+    jmp .done
+
+.getch:
+    call getch
+    ; Return char in AL by patching saved AX at [BP+16]
+    mov ah, [bp + 17]
+    mov [bp + 16], ax
+    jmp .done
+
+.cls:
+    call cls
+    jmp .done
+
+.ls:
+    call list_root
+    jmp .done
+
+.exec:
+    ; caller DS:DX -> 8.3 name
+    push ds
+    push es
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov di, tmp_name
+    mov cx, 11
+    mov ds, [bp + 2]   ; caller DS
+    mov si, dx
+    cld
+    rep movsb          ; DS:SI -> ES:DI
+    pop es
+    pop ds
+
+    mov dx, tmp_name
+    mov bx, USER_SEG
+    call load_83
+    jc .exec_fail
+
+    ; clear CF in saved flags at [bp+22]
+    mov ax, [bp + 22]
+    and ax, 0xFFFE
+    mov [bp + 22], ax
+    jmp .done
+
+.exec_fail:
+    ; set CF in saved flags
+    mov ax, [bp + 22]
+    or ax, 0x0001
+    mov [bp + 22], ax
+    jmp .done
+
+.read_file:
+    ; DS:DX -> 8.3 name, CX -> target segment
+    push ds
+    push es
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov di, tmp_name
+    mov cx, 11
+    mov ds, [bp + 2]
+    mov si, dx
+    cld
+    rep movsb
+    pop es
+    pop ds
+
+    mov dx, tmp_name
+    mov bx, [bp + 12]  ; CX
+    call load_83
+    jc .read_fail
+    mov ax, [bp + 22]
+    and ax, 0xFFFE
+    mov [bp + 22], ax
+    jmp .done
+.read_fail:
+    mov ax, [bp + 22]
+    or ax, 0x0001
+    mov [bp + 22], ax
+    jmp .done
+
+.write_file:
+    ; DS:DX -> 8.3 name, ES:BX -> buffer (1 sector)
+    push ds
+    push es
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov di, tmp_name
+    mov cx, 11
+    mov ds, [bp + 2]
+    mov si, dx
+    cld
+    rep movsb
+    pop es
+    pop ds
+
+    mov dx, tmp_name
+    mov es, [bp + 0]   ; saved ES
+    mov bx, [bp + 14]  ; saved BX
+    call write_83_sector
+    jc .write_fail
+    mov ax, [bp + 22]
+    and ax, 0xFFFE
+    mov [bp + 22], ax
+    jmp .done
+.write_fail:
+    mov ax, [bp + 22]
+    or ax, 0x0001
+    mov [bp + 22], ax
+    jmp .done
+
+.exit:
+    ; Deprecated, do nothing
+    jmp .done
+
+.done:
+    pop es
+    pop ds
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    iret
+
+; ----------------------------
+; Console helpers (BIOS)
+; ----------------------------
+puts:
+    push si
+    mov si, dx
+    call puts_ds_si
+    pop si
+    ret
+
+puts_ds_si:
+    push ax
+    push si
+    mov ah, 0x0E
+.l:
+    lodsb
+    test al, al
+    jz .d
+    int 0x10
+    jmp .l
+.d:
+    pop si
+    pop ax
+    ret
+
+puts_es_si:
+    push ax
+    push ds
+    push si
+    mov ax, es
+    mov ds, ax
+    mov ah, 0x0E
+.l2:
+    lodsb
+    test al, al
+    jz .d2
+    int 0x10
+    jmp .l2
+.d2:
+    pop si
+    pop ds
+    pop ax
+    ret
+
+getch:
+    xor ax, ax
+    int 0x16
+    ret
+
+cls:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ax, 0x0600
+    mov bh, 0x0F
+    xor cx, cx
+    mov dx, 0x184F
+    int 0x10
+    mov ah, 0x02
+    xor bh, bh
+    xor dx, dx
+    int 0x10
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+newline:
+    push ax
+    mov ah, 0x0E
+    mov al, 0x0D
+    int 0x10
+    mov al, 0x0A
+    int 0x10
+    pop ax
+    ret
+
+; ----------------------------
+; FAT12 helpers (root dir + file load)
+; ----------------------------
+compute_fs_layout:
+    ; root_start = reserved + (num_fats * sectors_per_fat)
+    mov al, [bpb_num_fats]
+    xor ah, ah
+    mul word [bpb_sectors_per_fat]
+    add ax, [bpb_reserved_sectors]
+    mov [root_start], ax
+
+    ; root_size = ceil(root_entries*32 / bytes_per_sector)
+    mov ax, 32
+    mul word [bpb_root_entries]
+    add ax, [bpb_bytes_per_sector]
+    dec ax
+    xor dx, dx
+    div word [bpb_bytes_per_sector]
+    mov [root_size], ax
+
+    ; data_sector = root_start + root_size
+    mov ax, [root_start]
+    add ax, [root_size]
+    mov [data_sector], ax
+    ret
+
+read_root:
+    ; read root dir into BUF_SEG:0x2000
+    push ax
+    push bx
+    push cx
+    push es
+    mov ax, BUF_SEG
+    mov es, ax
+    mov bx, 0x2000
+    mov ax, [root_start]
+    mov cx, [root_size]
+    call read_sectors_lba
+    pop es
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+read_fat:
+    ; read FAT1 into BUF_SEG:0x0000
+    push ax
+    push bx
+    push cx
+    push es
+    mov ax, BUF_SEG
+    mov es, ax
+    xor bx, bx
+    mov ax, [bpb_reserved_sectors]
+    mov cx, [bpb_sectors_per_fat]
+    call read_sectors_lba
+    pop es
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+list_root:
+    call read_root
+    call read_fat
+
+    mov ax, KERNEL_SEG
+    mov ds, ax
+    mov word [file_count], 0
+    mov word [total_size_low], 0
+    mov word [total_size_high], 0
+    mov byte [col_count], 0
+
+    mov dx, msg_dir_header
+    call puts
+
+    mov cx, [bpb_root_entries]
+    mov ax, BUF_SEG
+    mov es, ax
+    mov si, 0x2000
+.next:
+    mov al, [es:si]
+    cmp al, 0x00
+    je .done_ls
+    cmp al, 0xE5
+    je .skip
+    mov al, [es:si+11]
+    test al, 0x08
+    jnz .skip
+    
+    push cx
+    push si
+
+    mov cx, 8
+    xor bx, bx
+.pn:
+    mov al, [es:si+bx]
+    inc bx
+    call putchar
+    loop .pn
+
+    mov al, ' '
+    call putchar
+
+    mov cx, 3
+.pe:
+    mov al, [es:si+bx]
+    inc bx
+    call putchar
+    loop .pe
+
+    mov al, ' '
+    call putchar
+    call putchar
+
+    mov al, [es:si+11]
+    test al, 0x10
+    jz .isfile
+
+.isdir:
+    push si
+    mov si, msg_dir_tag
+.dir_tag_loop:
+    lodsb
+    test al, al
+    jz .dir_tag_done
+    mov bl, 0x0B
+    call putchar_color
+    jmp .dir_tag_loop
+.dir_tag_done:
+    pop si
+    jmp .enditem
+
+.isfile:
+    mov ax, [es:si+28]
+    mov dx, [es:si+30]
+    add [total_size_low], ax
+    adc [total_size_high], dx
+    inc word [file_count]
+
+    call print_32_padded
+
+.enditem:
+    pop si
+    pop cx
+
+    mov al, ' '
+    call putchar
+    call putchar
+
+    inc byte [col_count]
+    cmp byte [col_count], 3
+    jne .skip
+    mov byte [col_count], 0
+    mov dx, crlf
+    call puts
+
+.skip:
+    add si, 32
+    dec cx
+    jnz .next
+
+.done_ls:
+    cmp byte [col_count], 0
+    je .done_nl
+    mov dx, crlf
+    call puts
+.done_nl:
+    mov dx, crlf
+    call puts
+
+    mov ax, [file_count]
+    xor dx, dx
+    call print_32_left
+    mov dx, msg_files
+    call puts
+
+    mov ax, [total_size_low]
+    mov dx, [total_size_high]
+    mov cx, 10
+.shr_loop:
+    shr dx, 1
+    rcr ax, 1
+    loop .shr_loop
+
+    call print_32_left
+    mov dx, msg_kb
+    call puts
+    
+    mov dx, crlf
+    call puts
+    call puts
+
+    call count_free_clusters
+    shr ax, 1
+    xor dx, dx
+    call print_32_left
+    mov dx, msg_kb_free
+    call puts
+    mov dx, crlf
+    call puts
+    mov dx, crlf
+    call puts
+
+    mov ax, KERNEL_SEG
+    mov ds, ax
+    ret
+
+putchar:
+    push ax
+    push bx
+    mov ah, 0x0E
+    mov bh, 0
+    int 0x10
+    pop bx
+    pop ax
+    ret
+
+putchar_color:
+    push ax
+    push bx
+    push cx
+    push dx
+    mov ah, 0x03
+    xor bh, bh
+    int 0x10
+
+    mov ah, 0x09
+    mov cx, 1
+    int 0x10
+
+    inc dl
+    cmp dl, 80
+    jl .set_cur
+    mov dl, 0
+    inc dh
+.set_cur:
+    mov ah, 0x02
+    xor bh, bh
+    int 0x10
+
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+
+print_32_padded:
+    call print_32_left_count
+    mov di, 8
+    sub di, cx
+.pad:
+    test di, di
+    jle .done_pad
+    mov al, ' '
+    call putchar
+    dec di
+    jmp .pad
+.done_pad:
+    ret
+
+print_32_left:
+    call print_32_left_count
+    ret
+
+print_32_left_count:
+    mov cx, 0
+.loop_p:
+    mov bx, 10
+    mov si, ax
+    mov ax, dx
+    xor dx, dx
+    div bx
+    mov di, ax
+    mov ax, si
+    div bx
+    push dx
+    mov dx, di
+    inc cx
+    mov bx, ax
+    or bx, dx
+    jnz .loop_p
+    
+    mov dx, cx
+.print_digits:
+    pop ax
+    add al, '0'
+    mov bl, 0x0B
+    call putchar_color
+    loop .print_digits
+    mov cx, dx
+    ret
+
+count_free_clusters:
+    mov cx, 2880 - 2
+    mov bx, 2
+    xor di, di
+.loop_c:
+    mov ax, bx
+    call fat12_next
+    cmp ax, 0x000
+    jne .not_free
+    inc di
+.not_free:
+    inc bx
+    loop .loop_c
+    mov ax, di
+    ret
+
+; load_83: DX -> 11-byte 8.3 name in kernel DS, BX -> target segment
+load_83:
+    call read_root
+    call read_fat
+
+    ; find entry
+    mov cx, [bpb_root_entries]
+    push ds
+    mov ax, BUF_SEG
+    mov ds, ax
+    mov di, 0x2000
+.s:
+    cmp byte [di], 0x00
+    je .nf
+    cmp byte [di], 0xE5
+    je .cont
+    push cx
+    push di
+    mov si, di
+    mov di, dx
+    push ds
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov cx, 11
+    cld
+    repe cmpsb
+    pop ds
+    pop di
+    pop cx
+    je .found
+    jmp .cont2
+.cont2:
+    add di, 32
+    loop .s
+    jmp .nf
+.cont:
+    add di, 32
+    loop .s
+    jmp .nf
+
+.found:
+    ; DS=BUF_SEG, DI -> directory entry
+    mov ax, [di + 0x1A]      ; first cluster
+    pop ds                   ; RESTORE KERNEL DS BEFORE WRITING
+    mov [cur_cluster], ax
+
+    ; Load file clusters to BX:0
+    mov es, bx
+    xor bx, bx
+.lc:
+    mov ax, [cur_cluster]
+    cmp ax, 0xFF8
+    jae .done_load
+
+    ; LBA = data_sector + (cluster-2)*spc
+    mov ax, [cur_cluster]
+    sub ax, 2
+    xor cx, cx
+    mov cl, [bpb_sectors_per_cluster]
+    mul cx
+    add ax, [data_sector]
+    mov cx, 1
+    call read_sectors_lba
+
+    ; advance ES by 512 bytes
+    mov ax, es
+    add ax, 0x0020
+    mov es, ax
+
+    mov ax, [cur_cluster]
+    call fat12_next
+    mov [cur_cluster], ax
+    jmp .lc
+
+.done_load:
+    clc
+    ret
+
+.nf:
+    pop ds
+    stc
+    ret
+
+; write_83_sector: DX -> 11-byte 8.3 name in kernel DS, ES:BX -> buffer
+write_83_sector:
+    call read_root
+    call read_fat
+
+    mov cx, [bpb_root_entries]
+    push ds
+    mov ax, BUF_SEG
+    mov ds, ax
+    mov di, 0x2000
+.ws:
+    cmp byte [di], 0x00
+    je .wnf
+    cmp byte [di], 0xE5
+    je .wcont
+    push cx
+    push di
+    mov si, di
+    mov di, dx
+    push ds
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov cx, 11
+    cld
+    repe cmpsb
+    pop ds
+    pop di
+    pop cx
+    je .wfound
+    jmp .wcont2
+.wcont2:
+    add di, 32
+    loop .ws
+    jmp .wnf
+.wcont:
+    add di, 32
+    loop .ws
+    jmp .wnf
+
+.wfound:
+    mov ax, [di + 0x1A] ; cluster
+    pop ds
+    sub ax, 2
+    xor cx, cx
+    mov cl, [bpb_sectors_per_cluster]
+    mul cx
+    add ax, [data_sector]
+
+    ; Restore ES from caller (sysint_handler saved ES is [bp+0])
+    mov es, [bp + 0]
+
+    mov cx, 1
+    call write_sectors_lba
+    clc
+    ret
+
+.wnf:
+    pop ds
+    stc
+    ret
+
+; FAT12 next cluster: AX=current -> AX=next (uses BUF_SEG FAT at 0)
+fat12_next:
+    push bx
+    push dx
+    push ds
+    mov bx, ax
+    mov ax, BUF_SEG
+    mov ds, ax
+
+    ; offset = cluster * 3 / 2
+    mov ax, bx
+    shl ax, 1
+    add ax, bx
+    shr ax, 1
+    mov si, ax
+
+    mov ax, [si]
+    test bl, 1
+    jz .even
+    shr ax, 4
+    jmp .done
+.even:
+    and ax, 0x0FFF
+.done:
+    pop ds
+    pop dx
+    pop bx
+    ret
+
+; ----------------------------
+; Disk read (LBA -> CHS) using BIOS INT 13h
+; Inputs: AX=LBA, CX=count, ES:BX=dest
+; Uses boot_drive, bpb_sectors_per_track, bpb_num_heads
+; ----------------------------
+read_sectors_lba:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+
+    mov si, ax         ; lba
+    mov di, cx         ; count
+.loop:
+    mov ax, si
+    xor dx, dx
+    div word [bpb_sectors_per_track]
+    inc dx
+    mov cx, dx         ; sector (1-based)
+    xor dx, dx
+    div word [bpb_num_heads]
+    mov dh, dl         ; head
+    mov ch, al         ; cylinder low
+    shl ah, 6
+    or cl, ah
+
+    mov dl, [boot_drive]
+    mov ax, 0x0201
+    int 0x13
+    jc .err
+
+    add bx, [bpb_bytes_per_sector]
+    inc si
+    dec di
+    jnz .loop
+
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.err:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    mov dx, msg_disk
+    call puts
+    jmp $
+
+write_sectors_lba:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+
+    mov si, ax         ; lba
+    mov di, cx         ; count
+.loop_w:
+    mov ax, si
+    xor dx, dx
+    div word [bpb_sectors_per_track]
+    inc dx
+    mov cx, dx         ; sector (1-based)
+    xor dx, dx
+    div word [bpb_num_heads]
+    mov dh, dl         ; head
+    mov ch, al         ; cylinder low
+    shl ah, 6
+    or cl, ah
+
+    mov dl, [boot_drive]
+    mov ax, 0x0301     ; WRITE
+    int 0x13
+    jc .err_w
+
+    add bx, [bpb_bytes_per_sector]
+    inc si
+    dec di
+    jnz .loop_w
+
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+.err_w:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    mov dx, msg_disk
+    call puts
+    jmp $
+
+; ----------------------------
+; Data
+; ----------------------------
+boot_drive: db 0
+
+bpb_bytes_per_sector: dw 512
+bpb_sectors_per_cluster: db 1
+bpb_reserved_sectors: dw 1
+bpb_num_fats: db 2
+bpb_root_entries: dw 224
+bpb_sectors_per_fat: dw 9
+bpb_sectors_per_track: dw 18
+bpb_num_heads: dw 2
+
+root_start: dw 0
+root_size:  dw 0
+data_sector: dw 0
+
+cur_cluster: dw 0
+prog_exit_flag: db 0
+
+shell_name: db 'SHELL   BIN'
+tmp_name:   times 11 db 0
+
+line_buf:   times 32 db 0
+
+msg_kernel:  db 'LamaOS kernel ready. Starting shell...',0
+msg_run:     db 'Jumping to program...',0
+msg_exec_nf: db 'Program not found',0
+msg_disk:    db 'Disk read error',0
+msg_dir_header db 0x0D, 0x0A, 'A:/', 0x0D, 0x0A, 0x0D, 0x0A, 0
+msg_dir_tag    db '<DIR>   ', 0
+msg_files      db ' files    ', 0
+msg_kb         db ' KB', 0
+msg_kb_free    db ' KB free', 0
+
+file_count      dw 0
+total_size_low  dw 0
+total_size_high dw 0
+col_count       db 0
+crlf            db 0x0D, 0x0A, 0
+

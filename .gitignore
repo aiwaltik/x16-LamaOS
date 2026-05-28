@@ -1,0 +1,11 @@
+out/
+
+*.img
+*.bin
+*.BIN
+*.CFG
+
+__pycache__/
+*.pyc
+
+.vscode/
