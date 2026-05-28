@@ -28,6 +28,9 @@ start:
     cmp al, ' '
     je .run_setup
 
+    mov ah, SYS_CLS
+    int SYS_INT
+
     jmp repl
 
 .run_setup:

@@ -31,6 +31,29 @@ start:
     ; Save boot drive from DL
     mov [boot_drive], dl
 
+    ; Init COM1
+    mov dx, 0x3F9
+    mov al, 0
+    out dx, al
+    mov dx, 0x3FB
+    mov al, 0x80
+    out dx, al
+    mov dx, 0x3F8
+    mov al, 1
+    out dx, al
+    mov dx, 0x3F9
+    mov al, 0
+    out dx, al
+    mov dx, 0x3FB
+    mov al, 0x03
+    out dx, al
+    mov dx, 0x3FA
+    mov al, 0xC7
+    out dx, al
+    mov dx, 0x3FC
+    mov al, 0x0B
+    out dx, al
+
     ; Load BPB values from boot sector (LBA 0)
     mov ax, BUF_SEG
     mov es, ax
@@ -287,6 +310,7 @@ puts_ds_si:
     lodsb
     test al, al
     jz .d
+    call serial_write_char
     int 0x10
     jmp .l
 .d:
@@ -305,6 +329,7 @@ puts_es_si:
     lodsb
     test al, al
     jz .d2
+    call serial_write_char
     int 0x10
     jmp .l2
 .d2:
@@ -314,6 +339,18 @@ puts_es_si:
     ret
 
 getch:
+.poll:
+    mov dx, 0x3FD
+    in al, dx
+    test al, 1
+    jz .check_kb
+    mov dx, 0x3F8
+    in al, dx
+    ret
+.check_kb:
+    mov ah, 0x01
+    int 0x16
+    jz .poll
     xor ax, ax
     int 0x16
     ret
@@ -556,9 +593,26 @@ list_root:
     mov ds, ax
     ret
 
+serial_write_char:
+    push dx
+    push ax
+    mov ah, al
+.wait_tx:
+    mov dx, 0x3FD
+    in al, dx
+    test al, 0x20
+    jz .wait_tx
+    mov al, ah
+    mov dx, 0x3F8
+    out dx, al
+    pop ax
+    pop dx
+    ret
+
 putchar:
     push ax
     push bx
+    call serial_write_char
     mov ah, 0x0E
     mov bh, 0
     int 0x10
@@ -571,6 +625,7 @@ putchar_color:
     push bx
     push cx
     push dx
+    call serial_write_char
     mov ah, 0x03
     xor bh, bh
     int 0x10

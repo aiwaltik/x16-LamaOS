@@ -9,6 +9,8 @@ SYS_EXIT equ 0x12
 start:
     push cs
     pop ds
+    push cs
+    pop es
 
     mov dx, calc_msg
     mov ah, SYS_PUTS
@@ -47,13 +49,13 @@ start:
     cmp byte [si], 0
     jne .bad_expr
 
-    mov al, [op_char]
+    mov bl, [op_char]
     mov ax, [num1]
-    cmp al, '+'
+    cmp bl, '+'
     je .do_add
-    cmp al, '-'
+    cmp bl, '-'
     je .do_sub
-    cmp al, '*'
+    cmp bl, '*'
     je .do_mul
     mov bx, [num2]
     cmp bx, 0
@@ -98,6 +100,9 @@ start:
     retf
 
 read_expr_line:
+    push es
+    push ds
+    pop es
     mov di, expr_buf
     xor cx, cx
 .loop:
@@ -136,6 +141,7 @@ read_expr_line:
     mov dx, crlf
     mov ah, SYS_PUTS
     int SYS_INT
+    pop es
     ret
 
 skip_spaces:
