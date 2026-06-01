@@ -49,16 +49,28 @@ _start:
     GETCH
     cmp al, 0x1B ; ESC
     je .open_menu
+    cmp al, 0x7F ; Ctrl+Backspace
+    je .ctrl_backspace
     cmp al, 0x08 ; Backspace
     je .do_backspace
     cmp al, 0x0D ; Enter
     je .do_enter
+    cmp al, 0x09 ; Tab
+    je .do_tab
     cmp al, 0x00 ; Extended key
     je .do_extended
 
     ; Normal char
     cmp al, 0x20
     jb .wait_key
+    call insert_char
+    jmp .editor_loop
+
+.do_tab:
+    mov al, ' '
+    call insert_char
+    call insert_char
+    call insert_char
     call insert_char
     jmp .editor_loop
 
@@ -122,6 +134,14 @@ _start:
     je .move_up
     cmp ah, 0x50 ; Down
     je .move_down
+    cmp ah, 0x73 ; Ctrl+Left
+    je .ctrl_left
+    cmp ah, 0x74 ; Ctrl+Right
+    je .ctrl_right
+    cmp ah, 0x3C ; F2
+    je .do_save
+    cmp ah, 0x3D ; F3
+    je .do_exit
     jmp .wait_key
 
 .move_left:
@@ -181,6 +201,109 @@ _start:
     mov dl, [cursor_col]
     call find_idx_by_row_col
     mov [cursor_idx], ax
+    jmp .editor_loop
+
+.ctrl_left:
+    cmp word [cursor_idx], 0
+    je .wait_key
+    push es
+    mov ax, 0x5000
+    mov es, ax
+.cl_skip_spaces:
+    cmp word [cursor_idx], 0
+    je .cl_done
+    mov bx, [cursor_idx]
+    dec bx
+    mov al, [es:bx]
+    cmp al, ' '
+    jne .cl_skip_word
+    dec word [cursor_idx]
+    jmp .cl_skip_spaces
+.cl_skip_word:
+    cmp word [cursor_idx], 0
+    je .cl_done
+    mov bx, [cursor_idx]
+    dec bx
+    mov al, [es:bx]
+    cmp al, ' '
+    je .cl_done
+    cmp al, 0x0A
+    je .cl_done
+    cmp al, 0x0D
+    je .cl_done
+    dec word [cursor_idx]
+    jmp .cl_skip_word
+.cl_done:
+    pop es
+    jmp .editor_loop
+
+.ctrl_right:
+    mov ax, [file_size]
+    cmp [cursor_idx], ax
+    jae .wait_key
+    push es
+    mov dx, 0x5000
+    mov es, dx
+.cr_skip_word:
+    mov ax, [file_size]
+    cmp [cursor_idx], ax
+    jae .cr_done
+    mov bx, [cursor_idx]
+    mov al, [es:bx]
+    cmp al, ' '
+    je .cr_skip_spaces
+    cmp al, 0x0A
+    je .cr_skip_spaces
+    cmp al, 0x0D
+    je .cr_skip_spaces
+    inc word [cursor_idx]
+    jmp .cr_skip_word
+.cr_skip_spaces:
+    mov ax, [file_size]
+    cmp [cursor_idx], ax
+    jae .cr_done
+    mov bx, [cursor_idx]
+    mov al, [es:bx]
+    cmp al, ' '
+    jne .cr_done
+    inc word [cursor_idx]
+    jmp .cr_skip_spaces
+.cr_done:
+    pop es
+    jmp .editor_loop
+
+.ctrl_backspace:
+    cmp word [cursor_idx], 0
+    je .wait_key
+    push es
+    mov ax, 0x5000
+    mov es, ax
+.cb_skip_spaces:
+    cmp word [cursor_idx], 0
+    je .cb_done
+    mov bx, [cursor_idx]
+    dec bx
+    mov al, [es:bx]
+    cmp al, ' '
+    jne .cb_skip_word
+    call delete_char
+    jmp .cb_skip_spaces
+.cb_skip_word:
+    cmp word [cursor_idx], 0
+    je .cb_done
+    mov bx, [cursor_idx]
+    dec bx
+    mov al, [es:bx]
+    cmp al, ' '
+    je .cb_done
+    cmp al, 0x0A
+    je .cb_done
+    cmp al, 0x0D
+    je .cb_done
+    call delete_char
+    jmp .cb_skip_word
+.cb_done:
+    pop es
     jmp .editor_loop
 
 find_idx_by_row_col:
@@ -362,7 +485,7 @@ draw_screen:
     cmp al, 0x0A
     je .newline
     
-    mov ah, 0x07
+    mov ah, 0x0F
     stosw
     inc dl
     cmp dl, 80
@@ -372,7 +495,7 @@ draw_screen:
     jmp .print_loop
     
 .newline:
-    mov ah, 0x07
+    mov ah, 0x0F
     mov al, ' '
 .nl_fill:
     cmp dl, 80
@@ -395,7 +518,7 @@ draw_screen:
 .fill_screen:
     cmp dh, 25
     jae .done_fill
-    mov ah, 0x07
+    mov ah, 0x0F
     mov al, ' '
 .fill_line:
     cmp dl, 80
@@ -507,7 +630,7 @@ cursor_row db 0
 cursor_col db 0
 tmp_idx dw 0
 
-header_text db " LamaOS Editor - ESC for menu ", 0
+header_text db " LamaOS Editor | ESC: Menu | F2: Save | F3: Exit ", 0
 
 main_menu:
     db 3

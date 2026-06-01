@@ -58,7 +58,7 @@ _start:
     jmp .print_res
 .do_sub:
     sub ax, [num2]
-    jmp .print_res
+    jmp .print_res_signed
 .do_mul:
     mov bx, [num2]
     mul bx
@@ -75,6 +75,18 @@ _start:
     mov [result], ax
     PRINT "Result: "
     mov ax, [result]
+    call print_num
+    jmp .exit
+
+.print_res_signed:
+    mov [result], ax
+    PRINT "Result: "
+    mov ax, [result]
+    test ax, ax
+    jns .print_pos
+    PUTCHAR '-'
+    neg ax
+.print_pos:
     call print_num
 
 .exit:
