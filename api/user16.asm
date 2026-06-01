@@ -138,3 +138,24 @@
     call run_menu
     mov [bp + 16], ax
     jmp .done
+
+.kbhit:
+    mov dx, 0x3FD
+    in al, dx
+    test al, 1
+    jnz .kb_yes
+    
+    mov ah, 0x01
+    int 0x16
+    jnz .kb_yes
+    
+    mov ax, [bp + 16]
+    mov al, 0
+    mov [bp + 16], ax
+    jmp .done
+
+.kb_yes:
+    mov ax, [bp + 16]
+    mov al, 1
+    mov [bp + 16], ax
+    jmp .done

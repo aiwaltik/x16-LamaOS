@@ -203,6 +203,14 @@ sysint_handler:
     je .input
     cmp ah, 0x1E
     je .menu
+    cmp ah, 0x1F
+    je .draw_rect
+    cmp ah, 0x20
+    je .fill_rect
+    cmp ah, 0x21
+    je .draw_line
+    cmp ah, 0x22
+    je .kbhit
     jmp .done
 
 %include "api/user16.asm"
