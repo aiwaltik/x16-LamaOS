@@ -100,7 +100,7 @@ start:
 
 .shell_nf:
     mov dx, msg_exec_nf
-    call puts
+    call puts_err
 
 halt:
     cli
@@ -186,6 +186,12 @@ sysint_handler:
     je .create_file
     cmp ah, 0x1A
     je .delete_file
+    cmp ah, 0x1B
+    je .puts_color
+    cmp ah, 0x1C
+    je .putchar_color
+    cmp ah, 0x1D
+    je .input
     jmp .done
 
 %include "api/user16.asm"
@@ -212,6 +218,24 @@ puts:
     mov si, dx
     call puts_ds_si
     pop si
+    ret
+
+puts_err:
+    push ax
+    push bx
+    push si
+    mov si, dx
+    mov bl, 0x0C ; bright red
+.l_err:
+    lodsb
+    test al, al
+    jz .d_err
+    call putchar_color
+    jmp .l_err
+.d_err:
+    pop si
+    pop bx
+    pop ax
     ret
 
 puts_ds_si:
@@ -245,6 +269,24 @@ puts_es_si:
     int 0x10
     jmp .l2
 .d2:
+    pop si
+    pop ds
+    pop ax
+    ret
+
+puts_color_es_si:
+    push ax
+    push ds
+    push si
+    mov ax, es
+    mov ds, ax
+.l3:
+    lodsb
+    test al, al
+    jz .d3
+    call putchar_color
+    jmp .l3
+.d3:
     pop si
     pop ds
     pop ax
@@ -566,24 +608,24 @@ putchar_color:
     push cx
     push dx
     call serial_write_char
-    mov ah, 0x03
-    xor bh, bh
-    int 0x10
-
+    
+    cmp al, 0x20
+    jb .skip_attr
+    
+    mov cl, al ; save char
+    
     mov ah, 0x09
+    push cx
     mov cx, 1
     int 0x10
-
-    inc dl
-    cmp dl, 80
-    jl .set_cur
-    mov dl, 0
-    inc dh
-.set_cur:
-    mov ah, 0x02
-    xor bh, bh
+    pop cx
+    mov al, cl
+    
+.skip_attr:
+    mov ah, 0x0E
+    mov bh, 0
     int 0x10
-
+    
     pop dx
     pop cx
     pop bx
@@ -1184,8 +1226,8 @@ read_sectors_lba:
     pop cx
     pop bx
     pop ax
-    mov dx, msg_disk
-    call puts
+    mov dx, msg_disk_err
+    call puts_err
     jmp $
 
 write_sectors_lba:
@@ -1235,8 +1277,8 @@ write_sectors_lba:
     pop cx
     pop bx
     pop ax
-    mov dx, msg_disk
-    call puts
+    mov dx, msg_disk_err
+    call puts_err
     jmp $
 
 ; ----------------------------
@@ -1268,7 +1310,7 @@ line_buf:   times 32 db 0
 msg_kernel:  db 'LamaOS kernel ready. Starting shell...',0
 msg_run:     db 'Jumping to program...',0
 msg_exec_nf: db 'Program not found',0
-msg_disk:    db 'Disk read error',0
+msg_disk_err: db 'Disk I/O error',0
 msg_dir_header db 0x0D, 0x0A, 'A:/', 0x0D, 0x0A, 0x0D, 0x0A, 0
 msg_dir_tag    db '<DIR>   ', 0
 msg_files      db ' files    ', 0

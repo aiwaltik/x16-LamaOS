@@ -29,40 +29,10 @@ start:
     mov dl, 26
     int 0x10
 
-    mov di, username_buf
-    xor cx, cx
-.loop:
-    GETCH
-    cmp al, 0x0D
-    je .check_done
-    cmp al, 0x0A
-    je .check_done
-    cmp al, 0x08
-    je .bs
-    cmp al, 0x20
-    jb .loop
-    cmp cx, 20
-    jae .loop
-
-    stosb
-    inc cx
-    PUTCHAR al
-    jmp .loop
-.check_done:
-    cmp cx, 0
-    je .loop
-    jmp .done
-.bs:
-    cmp cx, 0
-    je .loop
-    dec cx
-    dec di
-    mov byte [di], 0
-    PRINT 0x08, 0x20, 0x08
-    jmp .loop
-.done:
-    mov al, 0
-    stosb
+.input_loop:
+    INPUT username_buf, 21
+    test cx, cx
+    jz .input_loop
 
     mov ah, 0x02
     mov bh, 0
@@ -106,8 +76,16 @@ start:
     mov ah, 0x02
     mov bh, 0
     mov dh, 16
-    mov dl, 30
+    mov dl, 26
     int 0x10
+
+    mov ah, 0x09
+    mov al, ' '
+    mov bh, 0
+    mov bl, 0x3C ; cyan background, bright red text
+    mov cx, 26
+    int 0x10
+
     PRINT "Error writing to USER.CFG!"
 .hang:
     jmp .hang

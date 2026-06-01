@@ -66,3 +66,68 @@
     and al, 0xFC
     out 0x61, al
     jmp .done
+
+.puts_color:
+    mov ax, [bp + 2]
+    mov es, ax
+    mov si, dx
+    mov bx, [bp + 14] ; saved BX (BL=color)
+    call puts_color_es_si
+    jmp .done
+
+.putchar_color:
+    mov ax, [bp + 16] ; saved AX (AL=char)
+    mov bx, [bp + 14] ; saved BX (BL=color)
+    call putchar_color
+    jmp .done
+
+.input:
+    ; DS:DX -> buffer, CX -> max length
+    mov ax, [bp + 2]
+    mov es, ax
+    mov di, [bp + 10] ; DX
+    mov bx, [bp + 12] ; CX (max length)
+    test bx, bx
+    jz .input_done_empty
+    dec bx            ; reserve 1 byte for null terminator
+    xor cx, cx        ; current length
+.input_loop:
+    call getch
+    cmp al, 0x0D
+    je .input_done
+    cmp al, 0x0A
+    je .input_done
+    cmp al, 0x08
+    je .input_bs
+    cmp al, 0x20
+    jb .input_loop
+    cmp cx, bx
+    jae .input_loop
+
+    stosb
+    inc cx
+    call putchar
+    jmp .input_loop
+
+.input_bs:
+    test cx, cx
+    jz .input_loop
+    dec cx
+    dec di
+    mov al, 0x08
+    call putchar
+    mov al, 0x20
+    call putchar
+    mov al, 0x08
+    call putchar
+    jmp .input_loop
+
+.input_done:
+    mov al, 0
+    stosb
+    mov [bp + 12], cx ; return length in CX
+    jmp .done
+
+.input_done_empty:
+    mov word [bp + 12], 0
+    jmp .done

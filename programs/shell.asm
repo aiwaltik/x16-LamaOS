@@ -3,6 +3,13 @@
 
 %include "lib/lama.inc"
 
+%macro PRINTLN_ERR 1-*
+    jmp %%skip
+%%str: db %1, 0x0D, 0x0A, 0
+%%skip:
+    PUTS_COLOR %%str, 0x0C
+%endmacro
+
 CFG_SEG equ 0x5000
 
 start:
@@ -42,7 +49,7 @@ start:
     jmp start
 
 .err_setup:
-    PRINTLN "Could not load SETUP.BIN"
+    PRINTLN_ERR "Could not load SETUP.BIN"
     jmp repl
 
 repl:
@@ -254,15 +261,15 @@ repl:
     jmp repl
 
 .bad_args:
-    PRINTLN "Invalid arguments"
+    PRINTLN_ERR "Invalid arguments"
     jmp repl
 
 .err_io:
-    PRINTLN "I/O Error"
+    PRINTLN_ERR "I/O Error"
     jmp repl
 
 .bad:
-    PRINTLN "Bad command or file name"
+    PRINTLN_ERR "Bad command or file name"
     jmp repl
 
 print_bcd_word:
@@ -289,52 +296,13 @@ print_bcd:
 ; read_line: reads into cmd_buf (0-terminated), supports backspace
 ; ----------------------------
 read_line:
-    mov di, cmd_buf
-    mov bx, CMD_MAX-1
-    jmp do_read_line
+    INPUT cmd_buf, CMD_MAX
+    PRINTLN
+    ret
 
 read_line_buf:
-    mov di, sector_buf
-    mov bx, 511
-do_read_line:
-    push es
-    push ds
-    pop es
-    xor cx, cx
-.loop:
-    GETCH
-    cmp al, 0x0D
-    je .done
-    cmp al, 0x0A
-    je .done
-    cmp al, 0x08
-    je .bs
-    cmp al, 0x20
-    jb .loop
-    cmp cx, bx
-    jae .loop
-
-    stosb
-    inc cx
-    ; echo char
-    PUTCHAR al
-    jmp .loop
-
-.bs:
-    cmp cx, 0
-    je .loop
-    dec cx
-    dec di
-    mov byte [di], 0
-    ; erase from screen: "\b \b"
-    PRINT 0x08, 0x20, 0x08
-    jmp .loop
-
-.done:
-    mov al, 0
-    stosb
+    INPUT sector_buf, 512
     PRINTLN
-    pop es
     ret
 
 split_cmd:
@@ -482,9 +450,8 @@ upcase:
 
 print_prompt:
     push es
-    mov si, prompt_root
-    mov bl, 0x0A
-    call puts_color
+    
+    PUTS_COLOR prompt_root, 0x0A
 
     mov ax, CFG_SEG
     mov es, ax
@@ -496,53 +463,15 @@ print_prompt:
     mov al, [es:di]
     cmp al, 0
     je .done1
-    mov ah, 0x09
-    mov bl, 0x0A
-    mov cx, 1
-    int 0x10
-    inc dl
-    cmp dl, 80
-    jl .set1
-    mov dl, 0
-    inc dh
-.set1:
-    mov ah, 0x02
-    int 0x10
+    PUTCHAR_COLOR al, 0x0A
     inc di
     jmp .loop1
 .done1:
 
-    mov si, prompt_tilde
-    mov bl, 0x0B
-    call puts_color
-
-    mov si, prompt_colon
-    mov bl, 0x0F
-    call puts_color
+    PUTS_COLOR prompt_tilde, 0x0B
+    PUTS_COLOR prompt_colon, 0x0F
+    
     pop es
-    ret
-
-puts_color:
-    mov ah, 0x03
-    mov bh, 0
-    int 0x10
-.loop:
-    lodsb
-    test al, al
-    jz .done
-    mov ah, 0x09
-    mov cx, 1
-    int 0x10
-    inc dl
-    cmp dl, 80
-    jl .set_cur
-    mov dl, 0
-    inc dh
-.set_cur:
-    mov ah, 0x02
-    int 0x10
-    jmp .loop
-.done:
     ret
 
 ; ----------------------------

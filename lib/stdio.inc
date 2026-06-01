@@ -9,6 +9,9 @@ SYS_CLS            equ 0x03   ; clears screen
 SYS_PUTCHAR        equ 0x04   ; AL -> char
 SYS_SET_CURSOR     equ 0x07   ; DH=row, DL=col
 SYS_GET_CURSOR     equ 0x08   ; returns DH=row, DL=col
+SYS_PUTS_COLOR     equ 0x1B   ; DS:DX -> string, BL -> color
+SYS_PUTCHAR_COLOR  equ 0x1C   ; AL -> char, BL -> color
+SYS_INPUT          equ 0x1D   ; DS:DX -> buffer, CX -> max length
 
 ; Sound
 SYS_PLAY_SOUND     equ 0x18   ; BX=frequency in Hz (0 to stop)
@@ -76,6 +79,91 @@ SYS_PLAY_SOUND     equ 0x18   ; BX=frequency in Hz (0 to stop)
     mov ah, SYS_PUTCHAR
     int SYS_INT
     pop ax
+%endmacro
+
+; Print string from pointer with color
+%macro PUTS_COLOR 2
+    push bx
+    push dx
+    push ax
+    mov dx, %1
+    mov bl, %2
+    mov ah, SYS_PUTS_COLOR
+    int SYS_INT
+    pop ax
+    pop dx
+    pop bx
+%endmacro
+
+; Print inline string literal with color
+%macro PRINT_COLOR 2-*
+    jmp %%skip
+%%str: db %2
+    %rep %0 - 2
+        %rotate 1
+        db %2
+    %endrep
+    db 0
+%%skip:
+    push bx
+    push dx
+    push ax
+    mov dx, %%str
+    mov bl, %1
+    mov ah, SYS_PUTS_COLOR
+    int SYS_INT
+    pop ax
+    pop dx
+    pop bx
+%endmacro
+
+; Print inline string literal with newline and color
+%macro PRINTLN_COLOR 1-*
+    jmp %%skip
+%%str: 
+    %if %0 > 1
+        db %2
+        %rep %0 - 2
+            %rotate 1
+            db %2
+        %endrep
+    %endif
+    db 0x0D, 0x0A, 0
+%%skip:
+    push bx
+    push dx
+    push ax
+    mov dx, %%str
+    mov bl, %1
+    mov ah, SYS_PUTS_COLOR
+    int SYS_INT
+    pop ax
+    pop dx
+    pop bx
+%endmacro
+
+; Print a single character with color
+%macro PUTCHAR_COLOR 2
+    push bx
+    push ax
+    mov al, %1
+    mov bl, %2
+    mov ah, SYS_PUTCHAR_COLOR
+    int SYS_INT
+    pop ax
+    pop bx
+%endmacro
+
+; Read line from user into buffer (returns length in CX)
+%macro INPUT 2
+    push dx
+    push ax
+    mov dx, %1
+    mov cx, %2
+    mov ah, SYS_INPUT
+    int SYS_INT
+    pop ax
+    pop dx
 %endmacro
 
 ; Wait for keypress, returns ASCII in AL
