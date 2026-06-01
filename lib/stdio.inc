@@ -12,6 +12,7 @@ SYS_GET_CURSOR     equ 0x08   ; returns DH=row, DL=col
 SYS_PUTS_COLOR     equ 0x1B   ; DS:DX -> string, BL -> color
 SYS_PUTCHAR_COLOR  equ 0x1C   ; AL -> char, BL -> color
 SYS_INPUT          equ 0x1D   ; DS:DX -> buffer, CX -> max length
+SYS_MENU           equ 0x1E   ; DS:DX -> menu struct, returns AX=index or 0xFFFF
 
 ; Sound
 SYS_PLAY_SOUND     equ 0x18   ; BX=frequency in Hz (0 to stop)
@@ -207,4 +208,13 @@ SYS_PLAY_SOUND     equ 0x18   ; BX=frequency in Hz (0 to stop)
     int SYS_INT
     pop ax
     pop bx
+%endmacro
+
+; Show top menu bar and wait for selection
+%macro MENU 1
+    push dx
+    mov dx, %1
+    mov ah, SYS_MENU
+    int SYS_INT
+    pop dx
 %endmacro

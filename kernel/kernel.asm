@@ -192,6 +192,8 @@ sysint_handler:
     je .putchar_color
     cmp ah, 0x1D
     je .input
+    cmp ah, 0x1E
+    je .menu
     jmp .done
 
 %include "api/user16.asm"
@@ -209,6 +211,120 @@ sysint_handler:
     pop bx
     pop ax
     iret
+
+run_menu:
+    push bx
+    push cx
+    push dx
+    push di
+    push ds
+
+    mov cl, [es:si] ; number of items
+    inc si          
+    
+    mov byte [cs:menu_sel], 0
+    mov [cs:menu_count], cl
+    mov [cs:menu_ptr_seg], es
+    mov [cs:menu_ptr_off], si
+    
+.redraw:
+    mov ax, 0xB800
+    mov es, ax
+    xor di, di
+    mov cx, 80
+    mov ax, 0x7020
+    rep stosw
+    
+    mov ch, 0 ; current item index
+    mov di, 2 ; start at col 1
+    
+.draw_items:
+    cmp ch, [cs:menu_count]
+    jae .wait_key
+    
+    mov al, ch
+    xor ah, ah
+    shl ax, 1
+    mov bx, ax
+    add bx, [cs:menu_ptr_off]
+    
+    push ds
+    mov ds, [cs:menu_ptr_seg]
+    mov si, [bx] ; DS:SI -> string
+    
+    mov ah, 0x70 ; default gray
+    cmp ch, [cs:menu_sel]
+    jne .print_str
+    mov ah, 0x0F ; highlighted
+    
+.print_str:
+    lodsb
+    test al, al
+    jz .next_item
+    mov [es:di], ax
+    add di, 2
+    jmp .print_str
+    
+.next_item:
+    pop ds
+    add di, 4
+    inc ch
+    jmp .draw_items
+    
+.wait_key:
+    call getch
+    cmp al, 0x1B ; ESC
+    je .cancel
+    cmp al, 0x0D ; Enter
+    je .select
+    cmp al, 0x00
+    je .ext_key
+    jmp .wait_key
+    
+.ext_key:
+    cmp ah, 0x4B ; Left
+    je .left
+    cmp ah, 0x4D ; Right
+    je .right
+    jmp .wait_key
+    
+.left:
+    mov al, [cs:menu_sel]
+    test al, al
+    jz .wait_key
+    dec al
+    mov [cs:menu_sel], al
+    jmp .redraw
+    
+.right:
+    mov al, [cs:menu_sel]
+    inc al
+    cmp al, [cs:menu_count]
+    jae .wait_key
+    mov [cs:menu_sel], al
+    jmp .redraw
+    
+.cancel:
+    mov ax, 0xFFFF
+    jmp .exit
+    
+.select:
+    mov al, [cs:menu_sel]
+    xor ah, ah
+    jmp .exit
+    
+.exit:
+    pop ds
+    pop di
+    pop dx
+    pop cx
+    pop bx
+    ret
+    
+menu_sel db 0
+menu_count db 0
+menu_ptr_seg dw 0
+menu_ptr_off dw 0
 
 ; ----------------------------
 ; Console helpers (BIOS)
@@ -578,10 +694,10 @@ putchar:
     mov bh, 0
     int 0x10
     
-    test ah, 0xF0
+    test ah, ah
     jnz .use_existing
     
-    mov ah, 0x0F
+    mov ah, 0x07
 .use_existing:
     mov bl, ah
     mov al, cl

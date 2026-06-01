@@ -8,8 +8,7 @@
 
 .getch:
     call getch
-    ; Return char in AL by patching saved AX at [BP+16]
-    mov ah, [bp + 17]
+    ; Return char in AL and scan code in AH by patching saved AX at [BP+16]
     mov [bp + 16], ax
     jmp .done
 
@@ -130,4 +129,12 @@
 
 .input_done_empty:
     mov word [bp + 12], 0
+    jmp .done
+
+.menu:
+    mov ax, [bp + 2]
+    mov es, ax
+    mov si, dx
+    call run_menu
+    mov [bp + 16], ax
     jmp .done

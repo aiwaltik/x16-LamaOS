@@ -17,6 +17,7 @@ HELLO_BIN  := $(OUT)/HELLO.BIN
 CALC_BIN   := $(OUT)/CALC.BIN
 SETUP_BIN  := $(OUT)/SETUP.BIN
 FETCH_BIN  := $(OUT)/FETCH.BIN
+EDIT_BIN   := $(OUT)/EDIT.BIN
 USER_CFG   := $(OUT)/USER.CFG
 
 .PHONY: all image run qemu clean
@@ -64,11 +65,15 @@ $(FETCH_BIN): programs/fetch.asm
 	$(MKOUT)
 	$(NASM) $< -f bin -o $@
 
+$(EDIT_BIN): programs/edit.asm
+	$(MKOUT)
+	$(NASM) $< -f bin -o $@
+
 $(USER_CFG):
 	$(MKOUT)
 	$(DD) if=/dev/zero of=$@ bs=512 count=1 status=none
 
-$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(HELLO_BIN) $(CALC_BIN) $(SETUP_BIN) $(FETCH_BIN) $(USER_CFG)
+$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(HELLO_BIN) $(CALC_BIN) $(SETUP_BIN) $(FETCH_BIN) $(EDIT_BIN) $(USER_CFG)
 	$(KILL_QEMU)
 	$(DD) if=/dev/zero of=$(IMG) bs=512 count=2880 status=none
 	$(MKFS) -F 12 -n "LAMAOS" $(IMG)
@@ -79,6 +84,7 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(HELLO_BIN) $(CALC_BIN) $(SETUP_
 	$(MCOPY) -i $(IMG) -o $(CALC_BIN)   ::/CALC.BIN
 	$(MCOPY) -i $(IMG) -o $(SETUP_BIN)  ::/SETUP.BIN
 	$(MCOPY) -i $(IMG) -o $(FETCH_BIN)  ::/FETCH.BIN
+	$(MCOPY) -i $(IMG) -o $(EDIT_BIN)   ::/EDIT.BIN
 	$(MCOPY) -i $(IMG) -o $(USER_CFG)   ::/USER.CFG
 
 ifeq ($(OS),Windows_NT)
