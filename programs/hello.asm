@@ -3,6 +3,8 @@
 
 %include "lib/lama.inc"
 
-start:
+LEX_HEADER
+
+_start:
     PRINTLN "Hello World!"
     retf

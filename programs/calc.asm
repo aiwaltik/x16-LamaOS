@@ -3,7 +3,9 @@
 
 %include "lib/lama.inc"
 
-start:
+LEX_HEADER
+
+_start:
     PRINTLN "LamaOS Calculator"
 
     PRINT "Expression (e.g. 2 + 2): "

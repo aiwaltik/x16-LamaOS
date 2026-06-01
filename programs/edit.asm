@@ -3,7 +3,9 @@
 
 %include "lib/lama.inc"
 
-start:
+LEX_HEADER
+
+_start:
     PRINT "File to edit: "
     INPUT filename_buf, 12
     PRINTLN

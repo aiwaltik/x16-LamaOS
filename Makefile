@@ -12,12 +12,12 @@ IMG   := $(OUT)/lamaos.img
 
 BOOT_BIN   := $(OUT)/boot.bin
 KERNEL_BIN := $(OUT)/KERNEL.BIN
-SHELL_BIN  := $(OUT)/SHELL.BIN
-HELLO_BIN  := $(OUT)/HELLO.BIN
-CALC_BIN   := $(OUT)/CALC.BIN
-SETUP_BIN  := $(OUT)/SETUP.BIN
-FETCH_BIN  := $(OUT)/FETCH.BIN
-EDIT_BIN   := $(OUT)/EDIT.BIN
+SHELL_BIN  := $(OUT)/SHELL.LEX
+HELLO_BIN  := $(OUT)/HELLO.LEX
+CALC_BIN   := $(OUT)/CALC.LEX
+SETUP_BIN  := $(OUT)/SETUP.LEX
+FETCH_BIN  := $(OUT)/FETCH.LEX
+EDIT_BIN   := $(OUT)/EDIT.LEX
 USER_CFG   := $(OUT)/USER.CFG
 
 .PHONY: all image run qemu clean
@@ -79,12 +79,12 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(HELLO_BIN) $(CALC_BIN) $(SETUP_
 	$(MKFS) -F 12 -n "LAMAOS" $(IMG)
 	$(DD) if=$(BOOT_BIN) of=$(IMG) bs=512 count=1 conv=notrunc status=none
 	$(MCOPY) -i $(IMG) -o $(KERNEL_BIN) ::/KERNEL.BIN
-	$(MCOPY) -i $(IMG) -o $(SHELL_BIN)  ::/SHELL.BIN
-	$(MCOPY) -i $(IMG) -o $(HELLO_BIN)  ::/HELLO.BIN
-	$(MCOPY) -i $(IMG) -o $(CALC_BIN)   ::/CALC.BIN
-	$(MCOPY) -i $(IMG) -o $(SETUP_BIN)  ::/SETUP.BIN
-	$(MCOPY) -i $(IMG) -o $(FETCH_BIN)  ::/FETCH.BIN
-	$(MCOPY) -i $(IMG) -o $(EDIT_BIN)   ::/EDIT.BIN
+	$(MCOPY) -i $(IMG) -o $(SHELL_BIN)  ::/SHELL.LEX
+	$(MCOPY) -i $(IMG) -o $(HELLO_BIN)  ::/HELLO.LEX
+	$(MCOPY) -i $(IMG) -o $(CALC_BIN)   ::/CALC.LEX
+	$(MCOPY) -i $(IMG) -o $(SETUP_BIN)  ::/SETUP.LEX
+	$(MCOPY) -i $(IMG) -o $(FETCH_BIN)  ::/FETCH.LEX
+	$(MCOPY) -i $(IMG) -o $(EDIT_BIN)   ::/EDIT.LEX
 	$(MCOPY) -i $(IMG) -o $(USER_CFG)   ::/USER.CFG
 
 ifeq ($(OS),Windows_NT)

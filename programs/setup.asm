@@ -3,7 +3,9 @@
 
 %include "lib/lama.inc"
 
-start:
+LEX_HEADER
+
+_start:
     push cs
     pop ds
     push cs

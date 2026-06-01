@@ -12,7 +12,9 @@
 
 CFG_SEG equ 0x5000
 
-start:
+LEX_HEADER
+
+_start:
     call load_user_cfg
     jc .run_setup
 
@@ -37,19 +39,12 @@ start:
     jc .err_setup
     
     ; Program loaded to 0x4000:0. Call it.
-    push ds
-    push es
-    mov ax, 0x4000
-    mov ds, ax
-    mov es, ax
-    call far [cs:user_prog_ptr]
-    pop es
-    pop ds
+    call call_user_prog
     
-    jmp start
+    jmp _start
 
 .err_setup:
-    PRINTLN_ERR "Could not load SETUP.BIN"
+    PRINTLN_ERR "Could not load SETUP.LEX"
     jmp repl
 
 repl:
@@ -130,14 +125,7 @@ repl:
     jc .bad
 
     ; Program loaded to 0x4000:0. Call it.
-    push ds
-    push es
-    mov ax, 0x4000
-    mov ds, ax
-    mov es, ax
-    call far [cs:user_prog_ptr]
-    pop es
-    pop ds
+    call call_user_prog
     call load_user_cfg
     jmp repl
 
@@ -292,6 +280,27 @@ print_bcd:
     PUTCHAR al
     ret
 
+call_user_prog:
+    push ds
+    push es
+    mov ax, 0x4000
+    mov ds, ax
+    mov es, ax
+    
+    mov word [cs:user_prog_ptr], 0x0000
+    
+    cmp word [0], 0x584C
+    jne .do_call
+    
+    mov ax, [4]
+    mov [cs:user_prog_ptr], ax
+    
+.do_call:
+    call far [cs:user_prog_ptr]
+    pop es
+    pop ds
+    ret
+
 ; ----------------------------
 ; read_line: reads into cmd_buf (0-terminated), supports backspace
 ; ----------------------------
@@ -361,8 +370,8 @@ load_user_cfg:
 
 ; ----------------------------
 ; to_83_name: SI -> input command, outputs name83 (11 bytes)
-; Accepts: "hello" or "hello.bin"
-; If no ext, assumes BIN
+; Accepts: "hello" or "hello.lex"
+; If no ext, assumes LEX
 ; Uppercases, pads with spaces.
 ; CF=1 on error.
 ; ----------------------------
@@ -422,9 +431,9 @@ to_83_name:
     jmp .extloop
 
 .noext:
-    mov byte [name83+8], 'B'
-    mov byte [name83+9], 'I'
-    mov byte [name83+10], 'N'
+    mov byte [name83+8], 'L'
+    mov byte [name83+9], 'E'
+    mov byte [name83+10], 'X'
     jmp .ok
 
 .end:
@@ -500,7 +509,7 @@ cmd_rm   db 'rm',0
 cmd_cat  db 'cat',0
 cmd_write db 'write',0
 file_user_cfg db 'USER    CFG',0
-file_setup db 'SETUP   BIN',0
+file_setup db 'SETUP   LEX',0
 
 user_prog_ptr:
     dw 0x0000

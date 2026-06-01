@@ -96,6 +96,15 @@ start:
     mov es, ax
     mov ss, ax
     mov sp, 0xFFFE
+
+    cmp word [0], 0x584C
+    jne .flat_bin
+    mov bx, [4]
+    push PROG_SEG
+    push bx
+    retf
+
+.flat_bin:
     jmp 0x2000:0x0000
 
 .shell_nf:
@@ -1418,7 +1427,7 @@ data_sector: dw 0
 cur_cluster: dw 0
 prog_exit_flag: db 0
 
-shell_name: db 'SHELL   BIN'
+shell_name: db 'SHELL   LEX'
 tmp_name:   times 11 db 0
 
 line_buf:   times 32 db 0

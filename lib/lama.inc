@@ -6,3 +6,4 @@
 %include "lib/system.inc"
 %include "lib/stdio.inc"
 %include "lib/graphics.inc"
+%include "lib/lex.inc"
