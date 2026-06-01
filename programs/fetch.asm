@@ -1,17 +1,10 @@
 [bits 16]
 [org 0x0000]
 
-SYS_INT  equ 0x60
-SYS_PUTS equ 0x01
-SYS_EXIT equ 0x12
+%include "lib/lama.inc"
 
 start:
-    push cs
-    pop ds
-
-    mov dx, crlf
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN
 
     mov si, art1
     mov bl, 0x0E
@@ -19,9 +12,7 @@ start:
     mov si, info1
     mov bl, 0x0B
     call puts_color
-    mov dx, crlf
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN
 
     mov si, art2
     mov bl, 0x0E
@@ -29,9 +20,7 @@ start:
     mov si, info2
     mov bl, 0x0F
     call puts_color
-    mov dx, crlf
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN
 
     mov si, art3
     mov bl, 0x0E
@@ -39,9 +28,7 @@ start:
     mov si, info3
     mov bl, 0x0F
     call puts_color
-    mov dx, crlf
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN
 
     mov si, art4
     mov bl, 0x0E
@@ -49,9 +36,7 @@ start:
     mov si, info4
     mov bl, 0x0F
     call puts_color
-    mov dx, crlf
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN
 
     mov si, art5
     mov bl, 0x0E
@@ -59,9 +44,7 @@ start:
     mov si, info5
     mov bl, 0x0F
     call puts_color
-    mov dx, crlf
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN
 
     mov si, art6
     mov bl, 0x0E
@@ -69,14 +52,9 @@ start:
     mov si, info6
     mov bl, 0x0F
     call puts_color
-    int 0x12
+    GET_MEM_SIZE
     call print_num
-    mov dx, kb_str
-    mov ah, SYS_PUTS
-    int SYS_INT
-    mov dx, crlf
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN " KB"
 
     mov si, art7
     mov bl, 0x0E
@@ -97,13 +75,8 @@ start:
     mov ax, 0
     call print_num
 .done_floppy:
-    mov dx, crlf
-    mov ah, SYS_PUTS
-    int SYS_INT
-
-    mov dx, crlf
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN
+    PRINTLN
 
     retf
 
@@ -133,10 +106,7 @@ puts_color:
 print_num:
     cmp ax, 0
     jne .convert
-    mov byte [echo_ch], '0'
-    mov dx, echo_ch
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PUTCHAR '0'
     ret
 .convert:
     mov bx, 10
@@ -151,10 +121,7 @@ print_num:
 .print_loop:
     pop ax
     add al, '0'
-    mov [echo_ch], al
-    mov dx, echo_ch
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PUTCHAR al
     loop .print_loop
     ret
 
@@ -173,7 +140,3 @@ info4 db 'Arch: x86', 0
 info5 db 'CPU: Generic x86', 0
 info6 db 'RAM: ', 0
 info7 db 'Floppy drives: ', 0
-kb_str db ' KB', 0
-
-echo_ch db 0, 0
-crlf db 0x0D, 0x0A, 0

@@ -1,24 +1,12 @@
 [bits 16]
 [org 0x0000]
 
-SYS_INT  equ 0x60
-SYS_PUTS equ 0x01
-SYS_GETCH equ 0x02
-SYS_EXIT equ 0x12
+%include "lib/lama.inc"
 
 start:
-    push cs
-    pop ds
-    push cs
-    pop es
+    PRINTLN "LamaOS Calculator"
 
-    mov dx, calc_msg
-    mov ah, SYS_PUTS
-    int SYS_INT
-
-    mov dx, prompt_expr
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINT "Expression (e.g. 2 + 2): "
     call read_expr_line
 
     mov si, expr_buf
@@ -74,29 +62,21 @@ start:
     mul bx
     jmp .print_res
 .div_zero:
-    mov dx, div_zero_msg
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN "Error: Division by zero"
     jmp .exit
 
 .bad_expr:
-    mov dx, bad_expr_msg
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN "Error: Invalid expression"
     jmp .exit
 
 .print_res:
     mov [result], ax
-    mov dx, result_msg
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINT "Result: "
     mov ax, [result]
     call print_num
 
 .exit:
-    mov dx, crlf
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN
     retf
 
 read_expr_line:
@@ -106,8 +86,7 @@ read_expr_line:
     mov di, expr_buf
     xor cx, cx
 .loop:
-    mov ah, SYS_GETCH
-    int SYS_INT
+    GETCH
     cmp al, 0x0D
     je .done
     cmp al, 0x0A
@@ -121,10 +100,7 @@ read_expr_line:
 
     stosb
     inc cx
-    mov [echo_ch], al
-    mov dx, echo_ch
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PUTCHAR al
     jmp .loop
 .bs:
     cmp cx, 0
@@ -132,15 +108,11 @@ read_expr_line:
     dec cx
     dec di
     mov byte [di], 0
-    mov dx, bs_seq
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINT 0x08, 0x20, 0x08
     jmp .loop
 .done:
     mov byte [di], 0
-    mov dx, crlf
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN
     pop es
     ret
 
@@ -190,10 +162,7 @@ parse_uint:
 print_num:
     cmp ax, 0
     jne .convert
-    mov byte [echo_ch], '0'
-    mov dx, echo_ch
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PUTCHAR '0'
     ret
 .convert:
     mov bx, 10
@@ -208,21 +177,10 @@ print_num:
 .print_loop:
     pop ax
     add al, '0'
-    mov [echo_ch], al
-    mov dx, echo_ch
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PUTCHAR al
     loop .print_loop
     ret
 
-calc_msg db 'Calculator (+, -, *, /)',0x0D,0x0A,0
-prompt_expr db 'Expr: ',0
-result_msg db 'Result: ',0
-bad_expr_msg db 'Invalid expression. Example: 100+100',0x0D,0x0A,0
-div_zero_msg db 'Division by zero',0x0D,0x0A,0
-crlf db 0x0D,0x0A,0
-bs_seq db 0x08, ' ', 0x08, 0
-echo_ch db 0, 0
 op_char db 0
 num1 dw 0
 num2 dw 0

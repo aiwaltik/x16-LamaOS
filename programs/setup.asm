@@ -1,11 +1,7 @@
 [bits 16]
 [org 0x0000]
 
-SYS_INT equ 0x60
-SYS_PUTS equ 0x01
-SYS_GETCH equ 0x02
-SYS_CLS equ 0x03
-SYS_WRITE_FILE equ 0x15
+%include "lib/lama.inc"
 
 start:
     push cs
@@ -25,8 +21,7 @@ start:
     int 0x10
 
     mov dx, ui_text
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PUTS dx
 
     mov ah, 0x02
     mov bh, 0
@@ -37,12 +32,11 @@ start:
     mov di, username_buf
     xor cx, cx
 .loop:
-    mov ah, SYS_GETCH
-    int SYS_INT
+    GETCH
     cmp al, 0x0D
-    je .done
+    je .check_done
     cmp al, 0x0A
-    je .done
+    je .check_done
     cmp al, 0x08
     je .bs
     cmp al, 0x20
@@ -52,20 +46,19 @@ start:
 
     stosb
     inc cx
-    mov [echo_ch], al
-    mov dx, echo_ch
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PUTCHAR al
     jmp .loop
+.check_done:
+    cmp cx, 0
+    je .loop
+    jmp .done
 .bs:
     cmp cx, 0
     je .loop
     dec cx
     dec di
     mov byte [di], 0
-    mov dx, bs_seq
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINT 0x08, 0x20, 0x08
     jmp .loop
 .done:
     mov al, 0
@@ -76,9 +69,7 @@ start:
     mov dh, 18
     mov dl, 26
     int 0x10
-    mov dx, msg_saving
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINT "Saving configuration..."
 
     mov dx, file_user_cfg
     push cs
@@ -87,14 +78,15 @@ start:
     
     mov si, username_buf
     mov di, sector_buf
+    xor cx, cx
 .copy:
     lodsb
     stosb
+    inc cx
     test al, al
     jnz .copy
 
-    mov ah, SYS_WRITE_FILE
-    int SYS_INT
+    WRITE_FILE file_user_cfg, sector_buf, cx
     jc .write_error
 
     mov ax, 0x0600
@@ -116,9 +108,7 @@ start:
     mov dh, 16
     mov dl, 30
     int 0x10
-    mov dx, msg_err
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINT "Error writing to USER.CFG!"
 .hang:
     jmp .hang
 
@@ -141,10 +131,6 @@ ui_text:
     times 40 db 0xCD
     db 0xBC, 0
 
-msg_saving db 'Saving configuration...', 0
-msg_err db 'Error writing to USER.CFG!', 0
-bs_seq db 0x08, ' ', 0x08, 0
-echo_ch db 0, 0
 file_user_cfg db 'USER    CFG'
 
 username_buf times 32 db 0

@@ -5,19 +5,8 @@ KERNEL_SEG     equ 0x1000
 PROG_SEG       equ 0x2000
 BUF_SEG        equ 0x3000
 USER_SEG       equ 0x4000
-USER_SEG       equ 0x4000
 
-SYS_INT        equ 0x60
-
-; Syscalls (AH)
-SYS_PUTS       equ 0x01   ; DS:DX -> 0-terminated string
-SYS_GETCH      equ 0x02   ; returns AL
-SYS_CLS        equ 0x03
-SYS_LS         equ 0x10   ; list root dir
-SYS_EXEC       equ 0x11   ; DS:DX -> 8.3 name (e.g. 'HELLO   BIN')
-SYS_EXIT       equ 0x12   ; return to shell
-SYS_READ_FILE  equ 0x14   ; DS:DX -> 8.3 name, CX -> segment
-SYS_WRITE_FILE equ 0x15   ; DS:DX -> 8.3 name, ES:BX -> buffer (1 sector)
+%include "lib/lama.inc"
 
 start:
     cli
@@ -84,6 +73,14 @@ start:
 
     call install_sysint
 
+    ; Make color 7 (BIOS default) bright white
+    mov ax, 0x1010
+    mov bx, 0x0007
+    mov dh, 63
+    mov ch, 63
+    mov cl, 63
+    int 0x10
+
     mov dx, msg_kernel
     call puts
 
@@ -149,136 +146,51 @@ sysint_handler:
     je .getch
     cmp ah, SYS_CLS
     je .cls
+    cmp ah, SYS_PUTCHAR
+    je .putchar
+    cmp ah, SYS_GET_TIME
+    je .get_time
+    cmp ah, SYS_GET_DATE
+    je .get_date
+    cmp ah, SYS_SET_CURSOR
+    je .set_cursor
+    cmp ah, SYS_GET_CURSOR
+    je .get_cursor
+    cmp ah, SYS_SET_VIDEO_MODE
+    je .set_video_mode
+    cmp ah, SYS_DRAW_PIXEL
+    je .draw_pixel
+    cmp ah, SYS_GET_MEM_SIZE
+    je .get_mem_size
+    cmp ah, SYS_YIELD
+    je .yield
     cmp ah, SYS_LS
     je .ls
     cmp ah, SYS_EXEC
     je .exec
     cmp ah, SYS_EXIT
     je .exit
+    cmp ah, SYS_REBOOT
+    je .reboot
     cmp ah, SYS_READ_FILE
     je .read_file
     cmp ah, SYS_WRITE_FILE
     je .write_file
+    cmp ah, SYS_FILE_SIZE
+    je .file_size
+    cmp ah, SYS_GET_TICKS
+    je .get_ticks
+    cmp ah, SYS_PLAY_SOUND
+    je .play_sound
+    cmp ah, 0x19
+    je .create_file
+    cmp ah, 0x1A
+    je .delete_file
     jmp .done
 
-.puts:
-    ; Caller DS:DX -> string. Saved caller DS is at [BP+2].
-    mov ax, [bp + 2]
-    mov es, ax
-    mov si, dx
-    call puts_es_si
-    jmp .done
-
-.getch:
-    call getch
-    ; Return char in AL by patching saved AX at [BP+16]
-    mov ah, [bp + 17]
-    mov [bp + 16], ax
-    jmp .done
-
-.cls:
-    call cls
-    jmp .done
-
-.ls:
-    call list_root
-    jmp .done
-
-.exec:
-    ; caller DS:DX -> 8.3 name
-    push ds
-    push es
-    mov ax, KERNEL_SEG
-    mov es, ax
-    mov di, tmp_name
-    mov cx, 11
-    mov ds, [bp + 2]   ; caller DS
-    mov si, dx
-    cld
-    rep movsb          ; DS:SI -> ES:DI
-    pop es
-    pop ds
-
-    mov dx, tmp_name
-    mov bx, USER_SEG
-    call load_83
-    jc .exec_fail
-
-    ; clear CF in saved flags at [bp+22]
-    mov ax, [bp + 22]
-    and ax, 0xFFFE
-    mov [bp + 22], ax
-    jmp .done
-
-.exec_fail:
-    ; set CF in saved flags
-    mov ax, [bp + 22]
-    or ax, 0x0001
-    mov [bp + 22], ax
-    jmp .done
-
-.read_file:
-    ; DS:DX -> 8.3 name, CX -> target segment
-    push ds
-    push es
-    mov ax, KERNEL_SEG
-    mov es, ax
-    mov di, tmp_name
-    mov cx, 11
-    mov ds, [bp + 2]
-    mov si, dx
-    cld
-    rep movsb
-    pop es
-    pop ds
-
-    mov dx, tmp_name
-    mov bx, [bp + 12]  ; CX
-    call load_83
-    jc .read_fail
-    mov ax, [bp + 22]
-    and ax, 0xFFFE
-    mov [bp + 22], ax
-    jmp .done
-.read_fail:
-    mov ax, [bp + 22]
-    or ax, 0x0001
-    mov [bp + 22], ax
-    jmp .done
-
-.write_file:
-    ; DS:DX -> 8.3 name, ES:BX -> buffer (1 sector)
-    push ds
-    push es
-    mov ax, KERNEL_SEG
-    mov es, ax
-    mov di, tmp_name
-    mov cx, 11
-    mov ds, [bp + 2]
-    mov si, dx
-    cld
-    rep movsb
-    pop es
-    pop ds
-
-    mov dx, tmp_name
-    mov es, [bp + 0]   ; saved ES
-    mov bx, [bp + 14]  ; saved BX
-    call write_83_sector
-    jc .write_fail
-    mov ax, [bp + 22]
-    and ax, 0xFFFE
-    mov [bp + 22], ax
-    jmp .done
-.write_fail:
-    mov ax, [bp + 22]
-    or ax, 0x0001
-    mov [bp + 22], ax
-    jmp .done
-
-.exit:
-    ; Deprecated, do nothing
-    jmp .done
+%include "api/user16.asm"
+%include "api/kernel16.asm"
+%include "api/gdi16.asm"
 
 .done:
     pop es
@@ -612,10 +524,38 @@ serial_write_char:
 putchar:
     push ax
     push bx
+    push cx
     call serial_write_char
+    
+    cmp al, 0x20
+    jb .skip_attr
+    
+    mov cl, al ; save char
+    
+    mov ah, 0x08
+    mov bh, 0
+    int 0x10
+    
+    test ah, 0xF0
+    jnz .use_existing
+    
+    mov ah, 0x0F
+.use_existing:
+    mov bl, ah
+    mov al, cl
+    mov ah, 0x09
+    push cx
+    mov cx, 1
+    int 0x10
+    pop cx
+    mov al, cl
+    
+.skip_attr:
     mov ah, 0x0E
     mov bh, 0
     int 0x10
+    
+    pop cx
     pop bx
     pop ax
     ret
@@ -795,8 +735,9 @@ load_83:
     stc
     ret
 
-; write_83_sector: DX -> 11-byte 8.3 name in kernel DS, ES:BX -> buffer
+; write_83_sector: DX -> 11-byte 8.3 name in kernel DS, ES:BX -> buffer, CX -> size
 write_83_sector:
+    push cx ; save size
     call read_root
     call read_fat
 
@@ -836,15 +777,37 @@ write_83_sector:
 
 .wfound:
     mov ax, [di + 0x1A] ; cluster
-    pop ds
+    
+    ; update size
+    pop dx ; pop ds into dx (dx = KERNEL_SEG)
+    pop cx ; restore size
+    
+    mov word [di + 28], cx
+    mov word [di + 30], 0
+    
+    mov ds, dx ; restore KERNEL_SEG
+    push es
+    mov cx, BUF_SEG
+    mov es, cx
+    mov bx, 0x2000
+    mov cx, [root_size]
+    push ax
+    mov ax, [root_start]
+    call write_sectors_lba
+    pop ax
+    pop es
+    jmp .w_calc_lba
+
+.w_calc_lba:
     sub ax, 2
     xor cx, cx
     mov cl, [bpb_sectors_per_cluster]
     mul cx
     add ax, [data_sector]
 
-    ; Restore ES from caller (sysint_handler saved ES is [bp+0])
+    ; Restore ES and BX from caller
     mov es, [bp + 0]
+    mov bx, [bp + 14]
 
     mov cx, 1
     call write_sectors_lba
@@ -852,6 +815,58 @@ write_83_sector:
     ret
 
 .wnf:
+    pop ds
+    pop cx ; discard size
+    stc
+    ret
+
+; get_file_size: DX -> 11-byte 8.3 name in kernel DS
+; returns DX:AX size, CF set if not found
+get_file_size:
+    call read_root
+    call read_fat
+
+    mov cx, [bpb_root_entries]
+    push ds
+    mov ax, BUF_SEG
+    mov ds, ax
+    mov di, 0x2000
+.fs_s:
+    cmp byte [di], 0x00
+    je .fs_nf
+    cmp byte [di], 0xE5
+    je .fs_cont
+    push cx
+    push di
+    mov si, di
+    mov di, dx
+    push ds
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov cx, 11
+    cld
+    repe cmpsb
+    pop ds
+    pop di
+    pop cx
+    je .fs_found
+    jmp .fs_cont2
+.fs_cont2:
+    add di, 32
+    loop .fs_s
+    jmp .fs_nf
+.fs_cont:
+    add di, 32
+    loop .fs_s
+    jmp .fs_nf
+
+.fs_found:
+    mov ax, [di + 28] ; low 16 bits of size
+    mov dx, [di + 30] ; high 16 bits of size
+    pop ds
+    clc
+    ret
+.fs_nf:
     pop ds
     stc
     ret
@@ -883,6 +898,238 @@ fat12_next:
     pop ds
     pop dx
     pop bx
+    ret
+
+; FAT12 set cluster: AX=cluster, CX=value (uses BUF_SEG FAT at 0)
+fat12_set:
+    push bx
+    push dx
+    push ds
+    mov bx, ax
+    mov ax, BUF_SEG
+    mov ds, ax
+
+    ; offset = cluster * 3 / 2
+    mov ax, bx
+    shl ax, 1
+    add ax, bx
+    shr ax, 1
+    mov si, ax
+
+    mov dx, [si]
+    test bl, 1
+    jz .even_s
+    ; odd: keep low 4 bits of DX, set high 12 bits to CX
+    and dx, 0x000F
+    mov ax, cx
+    shl ax, 4
+    or dx, ax
+    jmp .done_s
+.even_s:
+    ; even: keep high 4 bits of DX, set low 12 bits to CX
+    and dx, 0xF000
+    and cx, 0x0FFF
+    or dx, cx
+.done_s:
+    mov [si], dx
+    pop ds
+    pop dx
+    pop bx
+    ret
+
+; create_file: DX -> 11-byte 8.3 name in kernel DS
+; returns CF=1 on error
+create_file:
+    call read_root
+    call read_fat
+
+    ; 1. Check if exists
+    mov cx, [bpb_root_entries]
+    push ds
+    mov ax, BUF_SEG
+    mov ds, ax
+    mov di, 0x2000
+.cf_check:
+    cmp byte [di], 0x00
+    je .cf_not_exists
+    cmp byte [di], 0xE5
+    je .cf_cont
+    push cx
+    push di
+    mov si, di
+    mov di, dx
+    push ds
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov cx, 11
+    cld
+    repe cmpsb
+    pop ds
+    pop di
+    pop cx
+    je .cf_exists
+.cf_cont:
+    add di, 32
+    loop .cf_check
+
+.cf_not_exists:
+    ; 2. Find empty root entry
+    mov cx, [bpb_root_entries]
+    mov di, 0x2000
+.cf_find_root:
+    cmp byte [di], 0x00
+    je .cf_found_root
+    cmp byte [di], 0xE5
+    je .cf_found_root
+    add di, 32
+    loop .cf_find_root
+    jmp .cf_err
+
+.cf_found_root:
+    push di ; save root entry offset
+
+    ; 3. Find free FAT entry
+    mov cx, 2880 - 2
+    mov bx, 2
+.cf_find_fat:
+    mov ax, bx
+    call fat12_next
+    cmp ax, 0x000
+    je .cf_found_fat
+    inc bx
+    loop .cf_find_fat
+    pop di
+    jmp .cf_err
+
+.cf_found_fat:
+    ; bx is the free cluster
+    ; 4. Update FAT entry to 0xFFF
+    mov ax, bx
+    mov cx, 0xFFF
+    call fat12_set
+
+    ; 5. Update root dir entry
+    pop di ; restore root entry offset
+    ; copy name
+    push ds
+    mov ax, KERNEL_SEG
+    mov ds, ax
+    mov si, dx
+    mov ax, BUF_SEG
+    mov es, ax
+    mov cx, 11
+    cld
+    push di
+    rep movsb
+    pop di
+    pop ds
+    ; set attr, etc
+    mov byte [di+11], 0 ; attr
+    mov word [di+26], bx ; cluster
+    mov word [di+28], 0 ; size low
+    mov word [di+30], 0 ; size high
+
+    ; 6. Write FAT back
+    pop ds ; restore KERNEL_SEG
+    push es
+    mov ax, BUF_SEG
+    mov es, ax
+    xor bx, bx
+    mov ax, [bpb_reserved_sectors]
+    mov cx, [bpb_sectors_per_fat]
+    call write_sectors_lba
+
+    ; 7. Write Root Dir back
+    mov bx, 0x2000
+    mov ax, [root_start]
+    mov cx, [root_size]
+    call write_sectors_lba
+    pop es
+
+    clc
+    ret
+
+.cf_exists:
+.cf_err:
+    pop ds
+    stc
+    ret
+
+; delete_file: DX -> 11-byte 8.3 name in kernel DS
+; returns CF=1 on error
+delete_file:
+    call read_root
+    call read_fat
+
+    mov cx, [bpb_root_entries]
+    push ds
+    mov ax, BUF_SEG
+    mov ds, ax
+    mov di, 0x2000
+.df_check:
+    cmp byte [di], 0x00
+    je .df_nf
+    cmp byte [di], 0xE5
+    je .df_cont
+    push cx
+    push di
+    mov si, di
+    mov di, dx
+    push ds
+    mov ax, KERNEL_SEG
+    mov es, ax
+    mov cx, 11
+    cld
+    repe cmpsb
+    pop ds
+    pop di
+    pop cx
+    je .df_found
+.df_cont:
+    add di, 32
+    loop .df_check
+.df_nf:
+    pop ds
+    stc
+    ret
+
+.df_found:
+    ; 1. Mark root entry as deleted
+    mov byte [di], 0xE5
+    ; 2. Free clusters
+    mov bx, [di+26] ; starting cluster
+.df_free_loop:
+    cmp bx, 0x000
+    je .df_done_free
+    cmp bx, 0xFF8
+    jae .df_done_free
+    mov ax, bx
+    call fat12_next
+    push ax ; save next cluster
+    mov ax, bx
+    mov cx, 0x000
+    call fat12_set
+    pop bx
+    jmp .df_free_loop
+.df_done_free:
+    ; 3. Write FAT back
+    pop ds ; restore KERNEL_SEG
+    push es
+    mov ax, BUF_SEG
+    mov es, ax
+    xor bx, bx
+    mov ax, [bpb_reserved_sectors]
+    mov cx, [bpb_sectors_per_fat]
+    call write_sectors_lba
+
+    ; 4. Write Root Dir back
+    mov bx, 0x2000
+    mov ax, [root_start]
+    mov cx, [root_size]
+    call write_sectors_lba
+    pop es
+
+    clc
     ret
 
 ; ----------------------------

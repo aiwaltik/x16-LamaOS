@@ -1,14 +1,7 @@
 [bits 16]
 [org 0x0000]
 
-SYS_INT   equ 0x60
-SYS_PUTS  equ 0x01
-SYS_GETCH equ 0x02
-SYS_CLS   equ 0x03
-SYS_LS    equ 0x10
-SYS_EXEC  equ 0x11
-SYS_EXIT  equ 0x12
-SYS_READ_FILE equ 0x14
+%include "lib/lama.inc"
 
 CFG_SEG equ 0x5000
 
@@ -28,30 +21,28 @@ start:
     cmp al, ' '
     je .run_setup
 
-    mov ah, SYS_CLS
-    int SYS_INT
+    CLS
 
     jmp repl
 
 .run_setup:
-    mov dx, file_setup
-    mov ah, SYS_EXEC
-    int SYS_INT
+    EXEC file_setup
     jc .err_setup
     
     ; Program loaded to 0x4000:0. Call it.
     push ds
     push es
-    call far [user_prog_ptr]
+    mov ax, 0x4000
+    mov ds, ax
+    mov es, ax
+    call far [cs:user_prog_ptr]
     pop es
     pop ds
     
     jmp start
 
 .err_setup:
-    mov dx, err_setup_msg
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN "Could not load SETUP.BIN"
     jmp repl
 
 repl:
@@ -61,6 +52,8 @@ repl:
 
     cmp byte [cmd_buf], 0
     je repl
+
+    call split_cmd
 
     mov si, cmd_buf
     mov di, cmd_ls
@@ -78,6 +71,11 @@ repl:
     jc .do_cls
 
     mov si, cmd_buf
+    mov di, cmd_cls
+    call streq
+    jc .do_cls
+
+    mov si, cmd_buf
     mov di, cmd_help
     call streq
     jc .do_help
@@ -88,98 +86,223 @@ repl:
     jc .do_time
 
     mov si, cmd_buf
+    mov di, cmd_date
+    call streq
+    jc .do_date
+
+    mov si, cmd_buf
+    mov di, cmd_echo
+    call streq
+    jc .do_echo
+
+    mov si, cmd_buf
+    mov di, cmd_touch
+    call streq
+    jc .do_touch
+
+    mov si, cmd_buf
+    mov di, cmd_rm
+    call streq
+    jc .do_rm
+
+    mov si, cmd_buf
+    mov di, cmd_cat
+    call streq
+    jc .do_cat
+
+    mov si, cmd_buf
+    mov di, cmd_write
+    call streq
+    jc .do_write
+
+    mov si, cmd_buf
     call to_83_name
     jc .bad
 
-    mov dx, name83
-    mov ah, SYS_EXEC
-    int SYS_INT
+    EXEC name83
     jc .bad
 
     ; Program loaded to 0x4000:0. Call it.
     push ds
     push es
-    call far [user_prog_ptr]
+    mov ax, 0x4000
+    mov ds, ax
+    mov es, ax
+    call far [cs:user_prog_ptr]
     pop es
     pop ds
     call load_user_cfg
     jmp repl
 
 .do_ls:
-    mov ah, SYS_LS
-    int SYS_INT
+    LS
     jmp repl
 
 .do_dir:
-    mov ah, SYS_LS
-    int SYS_INT
+    LS
     jmp repl
 
 .do_cls:
-    mov ah, SYS_CLS
-    int SYS_INT
+    CLS
     jmp repl
 
 .do_help:
-    mov dx, help
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN "Built-in commands:"
+    PRINTLN "  help  - this text"
+    PRINTLN "  ls    - list files"
+    PRINTLN "  cls   - clear screen"
+    PRINTLN "  time  - show time"
+    PRINTLN "  date  - show date"
+    PRINTLN "  echo  - print text"
+    PRINTLN "  touch - create file"
+    PRINTLN "  rm    - delete file"
+    PRINTLN "  cat   - read file"
+    PRINTLN "  write - write to file"
+    PRINTLN "  <name>- run program"
     jmp repl
 
 .do_time:
-    mov ah, 0x02
-    int 0x1A
+    GET_TIME
     mov al, ch
     call print_bcd
-    mov al, ':'
-    mov ah, 0x0E
-    int 0x10
+    PUTCHAR ':'
     mov al, cl
     call print_bcd
-    mov al, ':'
-    mov ah, 0x0E
-    int 0x10
+    PUTCHAR ':'
     mov al, dh
     call print_bcd
-    mov dx, crlf
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN
+    jmp repl
+
+.do_date:
+    GET_DATE
+    mov al, dl
+    call print_bcd
+    PUTCHAR '.'
+    mov al, dh
+    call print_bcd
+    PUTCHAR '.'
+    mov ax, cx
+    call print_bcd_word
+    PRINTLN
+    jmp repl
+
+.do_echo:
+    mov dx, [arg_ptr]
+    PUTS dx
+    PRINTLN
+    jmp repl
+
+.do_touch:
+    mov si, [arg_ptr]
+    call to_83_name
+    jc .bad_args
+    CREATE_FILE name83
+    jc .err_io
+    jmp repl
+
+.do_rm:
+    mov si, [arg_ptr]
+    call to_83_name
+    jc .bad_args
+    DELETE_FILE name83
+    jc .err_io
+    jmp repl
+
+.do_cat:
+    mov si, [arg_ptr]
+    call to_83_name
+    jc .bad_args
+    FILE_SIZE name83
+    jc .err_io
+    ; DX:AX is size. We only support small files for now.
+    cmp ax, 0
+    je .cat_empty
+    ; Read file to 0x6000
+    READ_FILE name83, 0x6000
+    jc .err_io
+    ; Print it
+    push ds
+    mov bx, 0x6000
+    mov ds, bx
+    mov si, 0
+    mov cx, ax
+.cat_loop:
+    lodsb
+    cmp al, 0
+    je .cat_done
+    PUTCHAR al
+    loop .cat_loop
+.cat_done:
+    pop ds
+.cat_empty:
+    PRINTLN
+    jmp repl
+
+.do_write:
+    mov si, [arg_ptr]
+    call to_83_name
+    jc .bad_args
+    ; Read line from user into sector_buf
+    PRINT "Enter text: "
+    call read_line_buf
+    ; CX now contains the length of the string
+    ; Write to file
+    CREATE_FILE name83 ; ensure it exists
+    WRITE_FILE name83, sector_buf, cx
+    jc .err_io
+    jmp repl
+
+.bad_args:
+    PRINTLN "Invalid arguments"
+    jmp repl
+
+.err_io:
+    PRINTLN "I/O Error"
     jmp repl
 
 .bad:
-    mov dx, badcmd
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN "Bad command or file name"
     jmp repl
+
+print_bcd_word:
+    push ax
+    mov al, ah
+    call print_bcd
+    pop ax
+    call print_bcd
+    ret
 
 print_bcd:
     push ax
     mov ah, al
     shr al, 4
     add al, '0'
-    push ax
-    mov ah, 0x0E
-    int 0x10
-    pop ax
+    PUTCHAR al
     pop ax
     and al, 0x0F
     add al, '0'
-    mov ah, 0x0E
-    int 0x10
+    PUTCHAR al
     ret
 
 ; ----------------------------
 ; read_line: reads into cmd_buf (0-terminated), supports backspace
 ; ----------------------------
 read_line:
+    mov di, cmd_buf
+    mov bx, CMD_MAX-1
+    jmp do_read_line
+
+read_line_buf:
+    mov di, sector_buf
+    mov bx, 511
+do_read_line:
     push es
     push ds
     pop es
-    mov di, cmd_buf
     xor cx, cx
 .loop:
-    mov ah, SYS_GETCH
-    int SYS_INT
+    GETCH
     cmp al, 0x0D
     je .done
     cmp al, 0x0A
@@ -188,16 +311,13 @@ read_line:
     je .bs
     cmp al, 0x20
     jb .loop
-    cmp cx, CMD_MAX-1
+    cmp cx, bx
     jae .loop
 
     stosb
     inc cx
     ; echo char
-    mov [echo_ch], al
-    mov dx, echo_ch
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PUTCHAR al
     jmp .loop
 
 .bs:
@@ -207,18 +327,40 @@ read_line:
     dec di
     mov byte [di], 0
     ; erase from screen: "\b \b"
-    mov dx, bs_seq
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINT 0x08, 0x20, 0x08
     jmp .loop
 
 .done:
     mov al, 0
     stosb
-    mov dx, crlf
-    mov ah, SYS_PUTS
-    int SYS_INT
+    PRINTLN
     pop es
+    ret
+
+split_cmd:
+    mov si, cmd_buf
+.find_space:
+    mov al, [si]
+    cmp al, 0
+    je .no_args
+    cmp al, ' '
+    je .found_space
+    inc si
+    jmp .find_space
+.found_space:
+    mov byte [si], 0
+    inc si
+.skip_spaces:
+    mov al, [si]
+    cmp al, ' '
+    jne .set_arg
+    inc si
+    jmp .skip_spaces
+.set_arg:
+    mov [arg_ptr], si
+    ret
+.no_args:
+    mov [arg_ptr], si
     ret
 
 ; ----------------------------
@@ -246,10 +388,7 @@ streq:
     ret
 
 load_user_cfg:
-    mov dx, file_user_cfg
-    mov cx, CFG_SEG
-    mov ah, SYS_READ_FILE
-    int SYS_INT
+    READ_FILE file_user_cfg, CFG_SEG
     ret
 
 ; ----------------------------
@@ -414,7 +553,6 @@ cmd_buf times CMD_MAX db 0
 
 name83 times 11 db 0
 
-banner db 'LamaOS shell. Type help',0x0D,0x0A,0
 prompt_root db 'root@',0
 prompt_tilde db '~',0
 prompt_colon db ':',0
@@ -426,15 +564,19 @@ cmd_dir  db 'dir',0
 cmd_cls  db 'cls',0
 cmd_help db 'help',0
 cmd_time db 'time',0
-err_setup_msg db 'Error loading SETUP.BIN',0x0D,0x0A,0
+cmd_date db 'date',0
+cmd_echo db 'echo',0
+cmd_touch db 'touch',0
+cmd_rm   db 'rm',0
+cmd_cat  db 'cat',0
+cmd_write db 'write',0
 file_user_cfg db 'USER    CFG',0
 file_setup db 'SETUP   BIN',0
-
-crlf db 0x0D,0x0A,0
-bs_seq db 0x08,' ',0x08,0
-echo_ch db 0,0
 
 user_prog_ptr:
     dw 0x0000
     dw 0x4000
+
+arg_ptr dw 0
+sector_buf times 512 db 0
 
