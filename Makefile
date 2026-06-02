@@ -20,6 +20,7 @@ FETCH_BIN  := $(OUT)/FETCH.LEX
 EDIT_BIN   := $(OUT)/EDIT.LEX
 SNAKE_BIN  := $(OUT)/SNAKE.LEX
 MANDEL_BIN := $(OUT)/MANDEL.LEX
+MINE_BIN   := $(OUT)/MINE.LEX
 USER_CFG   := $(OUT)/USER.CFG
 
 .PHONY: all image run qemu clean
@@ -79,11 +80,15 @@ $(MANDEL_BIN): programs/mandel.asm
 	$(MKOUT)
 	$(NASM) $< -f bin -o $@
 
+$(MINE_BIN): programs/mine.asm
+	$(MKOUT)
+	$(NASM) $< -f bin -o $@
+
 $(USER_CFG):
 	$(MKOUT)
 	$(DD) if=/dev/zero of=$@ bs=512 count=1 status=none
 
-$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(HELLO_BIN) $(CALC_BIN) $(SETUP_BIN) $(FETCH_BIN) $(EDIT_BIN) $(SNAKE_BIN) $(MANDEL_BIN) $(USER_CFG)
+$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(HELLO_BIN) $(CALC_BIN) $(SETUP_BIN) $(FETCH_BIN) $(EDIT_BIN) $(SNAKE_BIN) $(MANDEL_BIN) $(MINE_BIN) $(USER_CFG)
 	$(KILL_QEMU)
 	$(DD) if=/dev/zero of=$(IMG) bs=512 count=2880 status=none
 	$(MKFS) -F 12 -n "LAMAOS" $(IMG)
@@ -97,6 +102,7 @@ $(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(HELLO_BIN) $(CALC_BIN) $(SETUP_
 	$(MCOPY) -i $(IMG) -o $(EDIT_BIN)   ::/EDIT.LEX
 	$(MCOPY) -i $(IMG) -o $(SNAKE_BIN)  ::/SNAKE.LEX
 	$(MCOPY) -i $(IMG) -o $(MANDEL_BIN) ::/MANDEL.LEX
+	$(MCOPY) -i $(IMG) -o $(MINE_BIN)   ::/MINE.LEX
 	$(MCOPY) -i $(IMG) -o $(USER_CFG)   ::/USER.CFG
 
 ifeq ($(OS),Windows_NT)

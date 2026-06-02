@@ -153,7 +153,7 @@ repl:
     PRINTLN "  rm    - delete file"
     PRINTLN "  cat   - read file"
     PRINTLN "  write - write to file"
-    PRINTLN "  <name>- run program"
+    PRINTLN "  <name>- run program (hello, calc, snake, mandel, mine)"
     jmp repl
 
 .do_time:
@@ -494,7 +494,7 @@ name83 times 11 db 0
 prompt_root db 'root@',0
 prompt_tilde db '~',0
 prompt_colon db ':',0
-help   db 'Commands: ls, dir, cls, help, time, calc, fetch, setup, edit, <prog>',0x0D,0x0A,0
+help   db 'Commands: ls, dir, cls, help, time, calc, fetch, setup, edit, mine, <prog>',0x0D,0x0A,0
 badcmd db 'Bad command',0x0D,0x0A,0
 
 cmd_ls   db 'ls',0
