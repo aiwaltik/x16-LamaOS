@@ -12,16 +12,11 @@ IMG   := $(OUT)/lamaos.img
 
 BOOT_BIN   := $(OUT)/boot.bin
 KERNEL_BIN := $(OUT)/KERNEL.BIN
-SHELL_BIN  := $(OUT)/SHELL.LEX
-HELLO_BIN  := $(OUT)/HELLO.LEX
-CALC_BIN   := $(OUT)/CALC.LEX
-SETUP_BIN  := $(OUT)/SETUP.LEX
-FETCH_BIN  := $(OUT)/FETCH.LEX
-EDIT_BIN   := $(OUT)/EDIT.LEX
-SNAKE_BIN  := $(OUT)/SNAKE.LEX
-MANDEL_BIN := $(OUT)/MANDEL.LEX
-MINE_BIN   := $(OUT)/MINE.LEX
 USER_CFG   := $(OUT)/USER.CFG
+
+# programs/*.asm -> out/<name>.LEX (add a new .asm file — no Makefile edits)
+PROG_SRCS := $(sort $(wildcard programs/*.asm))
+PROG_BINS := $(patsubst programs/%.asm,$(OUT)/%.LEX,$(PROG_SRCS))
 
 .PHONY: all image run qemu clean
 
@@ -34,7 +29,7 @@ run qemu: $(IMG)
 
 ifeq ($(OS),Windows_NT)
 MKOUT = @if not exist $(OUT) mkdir $(OUT)
-KILL_QEMU = -taskkill /IM qemu-system-i386.exe /F >nul 2>nul
+KILL_QEMU = -cmd /c "if exist $(OUT)\lamaos.img (ren $(OUT)\lamaos.img lamaos.img 2>nul || taskkill /IM qemu-system-i386.exe /F >nul 2>nul)"
 else
 MKOUT = @mkdir -p $(OUT)
 KILL_QEMU = -killall qemu-system-i386 >/dev/null 2>&1
@@ -48,39 +43,7 @@ $(KERNEL_BIN): kernel/kernel.asm
 	$(MKOUT)
 	$(NASM) $< -f bin -o $@
 
-$(SHELL_BIN): programs/shell.asm
-	$(MKOUT)
-	$(NASM) $< -f bin -o $@
-
-$(HELLO_BIN): programs/hello.asm
-	$(MKOUT)
-	$(NASM) $< -f bin -o $@
-
-$(CALC_BIN): programs/calc.asm
-	$(MKOUT)
-	$(NASM) $< -f bin -o $@
-
-$(SETUP_BIN): programs/setup.asm
-	$(MKOUT)
-	$(NASM) $< -f bin -o $@
-
-$(FETCH_BIN): programs/fetch.asm
-	$(MKOUT)
-	$(NASM) $< -f bin -o $@
-
-$(EDIT_BIN): programs/edit.asm
-	$(MKOUT)
-	$(NASM) $< -f bin -o $@
-
-$(SNAKE_BIN): programs/snake.asm
-	$(MKOUT)
-	$(NASM) $< -f bin -o $@
-
-$(MANDEL_BIN): programs/mandel.asm
-	$(MKOUT)
-	$(NASM) $< -f bin -o $@
-
-$(MINE_BIN): programs/mine.asm
+$(OUT)/%.LEX: programs/%.asm
 	$(MKOUT)
 	$(NASM) $< -f bin -o $@
 
@@ -88,22 +51,20 @@ $(USER_CFG):
 	$(MKOUT)
 	$(DD) if=/dev/zero of=$@ bs=512 count=1 status=none
 
-$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(SHELL_BIN) $(HELLO_BIN) $(CALC_BIN) $(SETUP_BIN) $(FETCH_BIN) $(EDIT_BIN) $(SNAKE_BIN) $(MANDEL_BIN) $(MINE_BIN) $(USER_CFG)
+define COPY_PROGS_TO_IMG
+$(foreach bin,$(PROG_BINS),
+	$(MCOPY) -i $(IMG) -o $(bin) ::/$(notdir $(bin))
+)
+endef
+
+$(IMG): $(BOOT_BIN) $(KERNEL_BIN) $(PROG_BINS) $(USER_CFG)
 	$(KILL_QEMU)
 	$(DD) if=/dev/zero of=$(IMG) bs=512 count=2880 status=none
 	$(MKFS) -F 12 -n "LAMAOS" $(IMG)
 	$(DD) if=$(BOOT_BIN) of=$(IMG) bs=512 count=1 conv=notrunc status=none
 	$(MCOPY) -i $(IMG) -o $(KERNEL_BIN) ::/KERNEL.BIN
-	$(MCOPY) -i $(IMG) -o $(SHELL_BIN)  ::/SHELL.LEX
-	$(MCOPY) -i $(IMG) -o $(HELLO_BIN)  ::/HELLO.LEX
-	$(MCOPY) -i $(IMG) -o $(CALC_BIN)   ::/CALC.LEX
-	$(MCOPY) -i $(IMG) -o $(SETUP_BIN)  ::/SETUP.LEX
-	$(MCOPY) -i $(IMG) -o $(FETCH_BIN)  ::/FETCH.LEX
-	$(MCOPY) -i $(IMG) -o $(EDIT_BIN)   ::/EDIT.LEX
-	$(MCOPY) -i $(IMG) -o $(SNAKE_BIN)  ::/SNAKE.LEX
-	$(MCOPY) -i $(IMG) -o $(MANDEL_BIN) ::/MANDEL.LEX
-	$(MCOPY) -i $(IMG) -o $(MINE_BIN)   ::/MINE.LEX
-	$(MCOPY) -i $(IMG) -o $(USER_CFG)   ::/USER.CFG
+	$(COPY_PROGS_TO_IMG)
+	$(MCOPY) -i $(IMG) -o $(USER_CFG) ::/USER.CFG
 
 ifeq ($(OS),Windows_NT)
 clean:

@@ -118,6 +118,26 @@ repl:
     jc .do_write
 
     mov si, cmd_buf
+    mov di, cmd_history
+    call streq
+    jc .do_history
+
+    mov si, cmd_buf
+    mov di, cmd_reboot
+    call streq
+    jc .do_reboot
+
+    mov si, cmd_buf
+    mov di, cmd_shutdown
+    call streq
+    jc .do_shutdown
+
+    mov si, cmd_buf
+    mov di, cmd_poweroff
+    call streq
+    jc .do_shutdown
+
+    mov si, cmd_buf
     call to_83_name
     jc .bad
 
@@ -153,6 +173,9 @@ repl:
     PRINTLN "  rm    - delete file"
     PRINTLN "  cat   - read file"
     PRINTLN "  write - write to file"
+    PRINTLN "  history - list command history"
+    PRINTLN "  reboot  - reboot the system"
+    PRINTLN "  shutdown- shutdown/power off the system"
     PRINTLN "  <name>- run program (hello, calc, snake, mandel, mine)"
     jmp repl
 
@@ -248,6 +271,18 @@ repl:
     jc .err_io
     jmp repl
 
+.do_history:
+    call print_history
+    jmp repl
+
+.do_reboot:
+    REBOOT
+    jmp repl
+
+.do_shutdown:
+    SHUTDOWN
+    jmp repl
+
 .bad_args:
     PRINTLN_ERR "Invalid arguments"
     jmp repl
@@ -259,6 +294,34 @@ repl:
 .bad:
     PRINTLN_ERR "Bad command or file name"
     jmp repl
+
+print_history:
+    mov cl, [history_count]
+    test cl, cl
+    jz .ph_done
+    xor ch, ch
+    mov bx, 0 ; index
+.ph_loop:
+    mov ax, bx
+    inc ax
+    call print_bcd
+    PRINT ": "
+    
+    push bx
+    mov ax, bx
+    shl ax, 6
+    mov dx, history_buf
+    add dx, ax
+    pop bx
+    
+    PUTS dx
+    PRINTLN
+    
+    inc bx
+    cmp bx, cx
+    jb .ph_loop
+.ph_done:
+    ret
 
 print_bcd_word:
     push ax
@@ -302,11 +365,183 @@ call_user_prog:
     ret
 
 ; ----------------------------
-; read_line: reads into cmd_buf (0-terminated), supports backspace
+; read_line: reads into cmd_buf (0-terminated), supports history
 ; ----------------------------
 read_line:
-    INPUT cmd_buf, CMD_MAX
+    ; Clear cmd_buf so save_temp_buf captures an empty string
+    push di
+    push cx
+    push es
+    push ds
+    pop es
+    mov di, cmd_buf
+    mov cx, CMD_MAX
+    xor al, al
+    rep stosb
+    pop es
+    pop cx
+    pop di
+
+    mov al, [history_count]
+    mov [current_history_idx], al
+    mov al, 0 ; initial length for first call
+    
+.read_loop:
+    mov dx, cmd_buf
+    mov cx, CMD_MAX
+    mov ah, 0x1D  ; SYS_INPUT
+    int 0x60
+    
+    cmp ah, 0x48
+    je .do_up
+    cmp ah, 0x50
+    je .do_down
+    
     PRINTLN
+    call save_history
+    ret
+
+.do_up:
+    mov al, [current_history_idx]
+    test al, al
+    jz .reprint_up
+    
+    cmp al, [history_count]
+    jne .skip_save_up
+    call save_temp_buf
+.skip_save_up:
+    
+    dec al
+    mov [current_history_idx], al
+    
+    call load_history_to_buf
+.reprint_up:
+    call print_and_get_len
+    jmp .read_loop
+
+.do_down:
+    mov al, [current_history_idx]
+    cmp al, [history_count]
+    jae .reprint_down
+    
+    inc al
+    mov [current_history_idx], al
+    
+    cmp al, [history_count]
+    je .restore_temp
+    
+    call load_history_to_buf
+    jmp .reprint_down
+
+.restore_temp:
+    call restore_temp_buf
+    
+.reprint_down:
+    call print_and_get_len
+    jmp .read_loop
+
+print_and_get_len:
+    mov dx, cmd_buf
+    PUTS dx
+    mov si, cmd_buf
+    xor cx, cx
+.pal_len:
+    lodsb
+    test al, al
+    jz .pal_done
+    inc cx
+    jmp .pal_len
+.pal_done:
+    mov ax, cx
+    ret
+
+save_temp_buf:
+    mov si, cmd_buf
+    mov di, temp_cmd_buf
+    push cx
+    mov cx, CMD_MAX
+    rep movsb
+    pop cx
+    ret
+
+restore_temp_buf:
+    mov si, temp_cmd_buf
+    mov di, cmd_buf
+    push cx
+    mov cx, CMD_MAX
+    rep movsb
+    pop cx
+    ret
+
+load_history_to_buf:
+    xor ah, ah
+    mov al, [current_history_idx]
+    shl ax, 6
+    mov si, history_buf
+    add si, ax
+    mov di, cmd_buf
+    push cx
+    mov cx, CMD_MAX
+    rep movsb
+    pop cx
+    ret
+
+save_history:
+    cmp byte [cmd_buf], 0
+    je .sh_done
+    
+    mov al, [history_count]
+    test al, al
+    jz .sh_add
+    
+    dec al
+    xor ah, ah
+    shl ax, 6
+    mov si, history_buf
+    add si, ax
+    mov di, cmd_buf
+    call streq
+    jc .sh_done
+
+.sh_add:
+    mov al, [history_count]
+    cmp al, HISTORY_MAX
+    je .sh_shift
+    
+    xor ah, ah
+    shl ax, 6
+    mov di, history_buf
+    add di, ax
+    mov si, cmd_buf
+    push cx
+    mov cx, CMD_MAX
+    rep movsb
+    pop cx
+    
+    inc byte [history_count]
+    ret
+
+.sh_shift:
+    push ds
+    push es
+    pop ds
+    mov si, history_buf + CMD_MAX
+    mov di, history_buf
+    push cx
+    mov cx, (HISTORY_MAX - 1) * CMD_MAX
+    rep movsb
+    pop cx
+    pop ds
+    
+    mov di, history_buf + (HISTORY_MAX - 1) * CMD_MAX
+    mov si, cmd_buf
+    push cx
+    mov cx, CMD_MAX
+    rep movsb
+    pop cx
+    ret
+
+.sh_done:
     ret
 
 read_line_buf:
@@ -508,6 +743,10 @@ cmd_touch db 'touch',0
 cmd_rm   db 'rm',0
 cmd_cat  db 'cat',0
 cmd_write db 'write',0
+cmd_history db 'history',0
+cmd_reboot db 'reboot',0
+cmd_shutdown db 'shutdown',0
+cmd_poweroff db 'poweroff',0
 file_user_cfg db 'USER    CFG',0
 file_setup db 'SETUP   LEX',0
 
@@ -518,3 +757,9 @@ user_prog_ptr:
 arg_ptr dw 0
 sector_buf times 512 db 0
 
+HISTORY_MAX equ 16
+HISTORY_SIZE equ CMD_MAX
+history_buf times HISTORY_MAX * HISTORY_SIZE db 0
+history_count db 0
+current_history_idx db 0
+temp_cmd_buf times CMD_MAX db 0

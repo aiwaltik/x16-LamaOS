@@ -122,6 +122,36 @@
     ; far jump to reset vector
     jmp 0xFFFF:0x0000
 
+.shutdown:
+    ; Try APM shutdown
+    mov ax, 0x5301
+    xor bx, bx
+    int 0x15
+    
+    mov ax, 0x530E
+    xor bx, bx
+    mov cx, 0x0102
+    int 0x15
+    
+    mov ax, 0x5307
+    mov bx, 0x0001
+    mov cx, 0x0003
+    int 0x15
+
+    ; If APM fails, try emulator-specific I/O ports
+    mov ax, 0x2000
+    mov dx, 0x604
+    out dx, ax
+    
+    mov ax, 0x2000
+    mov dx, 0xB004
+    out dx, ax
+    
+.halt:
+    cli
+    hlt
+    jmp .halt
+
 .file_size:
     ; DS:DX -> 8.3 name
     push ds

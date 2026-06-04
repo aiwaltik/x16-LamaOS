@@ -162,6 +162,7 @@ SYS_PLAY_SOUND     equ 0x18   ; BX=frequency in Hz (0 to stop)
     mov dx, %1
     mov cx, %2
     mov ah, SYS_INPUT
+    xor al, al
     int SYS_INT
     pop ax
     pop dx

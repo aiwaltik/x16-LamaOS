@@ -211,6 +211,8 @@ sysint_handler:
     je .draw_line
     cmp ah, 0x22
     je .kbhit
+    cmp ah, SYS_SHUTDOWN
+    je .shutdown
     jmp .done
 
 %include "api/user16.asm"

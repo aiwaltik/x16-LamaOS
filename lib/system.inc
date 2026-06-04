@@ -13,6 +13,7 @@ SYS_GET_TICKS      equ 0x17   ; returns DX:AX ticks
 SYS_GET_MEM_SIZE   equ 0x0E   ; returns AX=memory in KB
 SYS_YIELD          equ 0x0F   ; wait for interrupt (hlt)
 SYS_REBOOT         equ 0x13   ; reboot system
+SYS_SHUTDOWN       equ 0x23   ; shutdown system
 
 ; Filesystem and Execution
 SYS_LS             equ 0x10   ; list root dir
@@ -43,6 +44,12 @@ SYS_DELETE_FILE    equ 0x1A   ; DS:DX -> 8.3 name
 ; Reboot the system
 %macro REBOOT 0
     mov ah, SYS_REBOOT
+    int SYS_INT
+%endmacro
+
+; Shutdown the system
+%macro SHUTDOWN 0
+    mov ah, SYS_SHUTDOWN
     int SYS_INT
 %endmacro
 
