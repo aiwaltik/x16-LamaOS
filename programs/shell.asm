@@ -133,6 +133,11 @@ repl:
     jc .do_shutdown
 
     mov si, cmd_buf
+    mov di, cmd_shut
+    call streq
+    jc .do_shutdown
+
+    mov si, cmd_buf
     mov di, cmd_poweroff
     call streq
     jc .do_shutdown
@@ -175,8 +180,8 @@ repl:
     PRINTLN "  write - write to file"
     PRINTLN "  history - list command history"
     PRINTLN "  reboot  - reboot the system"
-    PRINTLN "  shutdown- shutdown/power off the system"
-    PRINTLN "  <name>- run program (hello, calc, snake, mandel, mine)"
+    PRINTLN "  shut    - shutdown/power off the system"
+    PRINTLN "  <name>- run program (hello, calc, snake, mandel, mine, hexedit)"
     jmp repl
 
 .do_time:
@@ -746,6 +751,7 @@ cmd_write db 'write',0
 cmd_history db 'history',0
 cmd_reboot db 'reboot',0
 cmd_shutdown db 'shutdown',0
+cmd_shut     db 'shut',0
 cmd_poweroff db 'poweroff',0
 file_user_cfg db 'USER    CFG',0
 file_setup db 'SETUP   LEX',0

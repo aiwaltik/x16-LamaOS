@@ -255,6 +255,18 @@ check_food:
     ; ate food!
     cmp word [snake_len], 100
     jge .skip_grow
+    
+    push bx
+    mov bx, [snake_len]
+    dec bx
+    shl bx, 1
+    
+    mov ax, [snake_x + bx]
+    mov [snake_x + bx + 2], ax
+    mov ax, [snake_y + bx]
+    mov [snake_y + bx + 2], ax
+    pop bx
+    
     inc word [snake_len]
 .skip_grow:
     call spawn_food
